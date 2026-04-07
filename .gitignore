@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 *.egg-info/
 .env
+CLAUDE.md
 .venv/
 venv/
 dist/
