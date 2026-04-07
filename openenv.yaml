@@ -1,0 +1,83 @@
+name: vision-coder
+version: "0.1.0"
+description: >
+  Screenshot-to-HTML reinforcement learning environment.
+  An agent receives a UI screenshot and must generate HTML+CSS
+  that visually reproduces the original page.
+
+server:
+  host: "0.0.0.0"
+  port: 7860
+  start_command: "uvicorn openenv.server.app:app --host 0.0.0.0 --port 7860"
+
+tasks:
+  - id: easy
+    description: "Simple single-section web pages with minimal layout"
+    difficulty: easy
+    max_steps: 1
+    reset_params:
+      difficulty: easy
+
+  - id: medium
+    description: "Multi-section pages with navigation bars and content blocks"
+    difficulty: medium
+    max_steps: 1
+    reset_params:
+      difficulty: medium
+
+  - id: hard
+    description: "Complex pages with forms, tables, and rich interactive layouts"
+    difficulty: hard
+    max_steps: 1
+    reset_params:
+      difficulty: hard
+
+action_space:
+  type: text
+  description: "Raw HTML string (the agent must NOT include markdown fencing)"
+  example: "<!DOCTYPE html><html><head>...</head><body>...</body></html>"
+
+observation_space:
+  screenshot_b64:
+    type: string
+    encoding: base64
+    format: png
+    description: "Base64-encoded PNG screenshot of the target UI (present after reset)"
+  prompt:
+    type: string
+    description: "Task instruction for the agent"
+  done:
+    type: boolean
+    description: "True after step(), False after reset()"
+  reward:
+    type: number
+    range: [0.0, 1.0]
+    description: "Composite reward (present after step(), null after reset())"
+
+reward:
+  range: [0.0, 1.0]
+  normalisation: weighted_sum_divided_by_total_weight
+  components:
+    - name: format
+      weight: 1.0
+      description: "Markdown fencing present and <html>/DOCTYPE tags found"
+    - name: validity
+      weight: 1.0
+      description: "HTML parseability, structural completeness, tag diversity"
+    - name: structural
+      weight: 1.0
+      description: "DOM tag-sequence similarity + CSS class overlap vs. reference"
+    - name: clip
+      weight: 3.0
+      description: "CLIP cosine similarity between rendered HTML and reference screenshot"
+
+environment_variables:
+  - name: HF_TOKEN
+    required: true
+    description: "Hugging Face token to download the WebSight dataset"
+  - name: API_BASE_URL
+    required: true
+    description: "OpenAI-compatible LLM endpoint for inference"
+  - name: MODEL_NAME
+    required: true
+    description: "Model identifier to use for LLM calls (must support vision)"
