@@ -96,3 +96,13 @@ def state() -> State:
 def close() -> None:
     """Signal end of session (no-op for single-instance server)."""
     logger.info("Session closed by client.")
+
+
+def main():
+    import os
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 7860)))
+
+
+if __name__ == "__main__":
+    main()
