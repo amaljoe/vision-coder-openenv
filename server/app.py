@@ -98,6 +98,18 @@ def close() -> None:
     logger.info("Session closed by client.")
 
 
+def main() -> None:
+    """Entry point for the `server` console script."""
+    import os
+    import uvicorn
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run("openenv.server.app:app", host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()
+
+
 def main():
     import os
     import uvicorn
