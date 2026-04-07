@@ -15,11 +15,11 @@ from typing import Optional
 from PIL import Image
 
 from openenv.models import Action, Observation, State
-from vcoder.data.websight import load_websight_dataset
+from vcoder.data.dataset import load_websight_dataset
 from vcoder.rewards.format_rewards import format_reward
 from vcoder.rewards.structural_rewards import structural_similarity_reward
 from vcoder.rewards.validity_rewards import html_validity_reward
-from vcoder.rewards.visual_rewards import clip_visual_reward
+from vcoder.rewards.visual_rewards import clip_visual_reward, _render_html
 
 PROMPT = (
     "You are a UI-to-code assistant. Given a screenshot of a website, generate the "
@@ -109,12 +109,19 @@ class VisionCoderEnvironment:
             sample_index=idx,
         )
 
+        # Render reference HTML live to get the screenshot
+        ref_image = _render_html(self._current_sample["solution"])
+        if ref_image is None:
+            # Fallback: blank white image
+            ref_image = Image.new("RGB", (640, 480), color=(255, 255, 255))
+        self._current_sample["image"] = ref_image
+
         prompt = DIFFICULTY_PROMPTS.get(difficulty, PROMPT)
 
         return Observation(
             done=False,
             reward=None,
-            screenshot_b64=_image_to_b64(self._current_sample["image"]),
+            screenshot_b64=_image_to_b64(ref_image),
             prompt=prompt,
             metadata={
                 "episode_id": self._state.episode_id,
@@ -141,8 +148,8 @@ class VisionCoderEnvironment:
 
         self._state.step_count += 1
 
-        completion_text = f"```html\n{action.html}\n```"
-        completions = [[{"content": completion_text}]]
+        # Pass raw action directly — extract_html handles fences/think blocks
+        completions = [[{"content": action.html}]]
         images = [self._current_sample["image"]]
         solutions = [self._current_sample["solution"]]
 

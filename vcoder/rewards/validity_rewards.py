@@ -4,7 +4,7 @@ from __future__ import annotations
 from vcoder.rewards import extract_html
 
 # Minimum unique tags to consider "diverse" content
-_MIN_DIVERSE_TAGS = 8
+_MIN_DIVERSE_TAGS = 5
 
 
 def html_validity_reward(completions: list[list[dict]]) -> list[float]:

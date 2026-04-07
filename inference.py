@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "ollama")  # Ollama ignores the key
 SERVER_PORT = int(os.environ.get("INFERENCE_SERVER_PORT", "18080"))
 SERVER_URL = f"http://127.0.0.1:{SERVER_PORT}"
 
@@ -102,7 +103,7 @@ def _generate_html(client: OpenAI, screenshot_b64: str, prompt: str) -> str:
                 ],
             },
         ],
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.2,
     )
     return response.choices[0].message.content or ""
@@ -115,7 +116,7 @@ def _generate_html(client: OpenAI, screenshot_b64: str, prompt: str) -> str:
 def run_inference() -> None:
     import httpx
 
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", "sk-placeholder"), base_url=API_BASE_URL)
+    client = OpenAI(api_key=OPENAI_API_KEY, base_url=API_BASE_URL)
     env_client = httpx.Client(base_url=SERVER_URL, timeout=180.0)
 
     all_rewards: list[float] = []
