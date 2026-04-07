@@ -16,10 +16,13 @@ from PIL import Image
 
 from openenv.models import Action, Observation, State
 from vcoder.data.dataset import load_websight_dataset
+from vcoder.rewards.color_rewards import color_reward
 from vcoder.rewards.format_rewards import format_reward
+from vcoder.rewards.position_rewards import position_reward
 from vcoder.rewards.structural_rewards import structural_similarity_reward
+from vcoder.rewards.text_block_rewards import text_block_reward
 from vcoder.rewards.validity_rewards import html_validity_reward
-from vcoder.rewards.visual_rewards import clip_visual_reward, _render_html
+from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
 
 PROMPT = (
     "You are a UI-to-code assistant. Given a screenshot of a website, generate the "
@@ -27,14 +30,18 @@ PROMPT = (
     "Output only the raw HTML — no markdown fencing."
 )
 
-# Reward signal weights (must sum to the normalisation denominator below)
+# Reward signal weights — must sum to _WEIGHT_SUM below.
+# After all 4 phases the total denominator rises from 6.0 → 9.0.
 REWARD_WEIGHTS = {
-    "format": 1.0,
-    "validity": 1.0,
-    "structural": 1.0,
-    "clip": 3.0,
+    "format": 1.0,       # markdown fencing + html/doctype tags
+    "validity": 1.0,     # parseability + structure + tag diversity
+    "structural": 1.0,   # DOM tag-sequence + CSS-class overlap
+    "text_block": 2.0,   # Phase 1: text block match + text similarity
+    "position": 1.0,     # Phase 2: spatial layout accuracy
+    "color": 1.0,        # Phase 3: perceptual color accuracy (CIEDE2000)
+    "clip": 2.0,         # Phase 4: CLIP / PIL pixel visual similarity
 }
-_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 6.0 — used to normalise to [0, 1]
+_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.0 — normalises composite to [0, 1]
 
 DIFFICULTY_PROMPTS = {
     "easy": (
@@ -63,7 +70,13 @@ class VisionCoderEnvironment:
 
     Each episode presents an agent with a UI screenshot. The agent submits
     HTML code via step(), which is rendered and scored against the reference
-    using four reward signals (format, validity, structural, CLIP visual).
+    using seven reward signals across four phases:
+
+      Phase 0 (existing): format, validity, structural, clip (PIL)
+      Phase 1: text_block — text block position + content matching
+      Phase 2: position   — spatial layout accuracy of matched blocks
+      Phase 3: color      — perceptual color accuracy (CIEDE2000)
+      Phase 4: clip       — true CLIP similarity (when ENABLE_CLIP=1)
 
     The composite reward is normalised to [0.0, 1.0].
     """
@@ -133,12 +146,15 @@ class VisionCoderEnvironment:
     def step(self, action: Action) -> Observation:
         """Score the agent's submitted HTML against the reference screenshot.
 
-        Computes four reward signals and returns their weighted sum normalised
+        Computes seven reward signals and returns their weighted sum normalised
         to [0.0, 1.0]:
           - format      (weight 1): markdown fencing + html/doctype tags
           - validity    (weight 1): parseability + structure + tag diversity
           - structural  (weight 1): DOM tag-sequence + CSS-class overlap
-          - clip        (weight 3): CLIP image-image similarity after rendering
+          - text_block  (weight 2): text block match + text similarity [Phase 1]
+          - position    (weight 1): spatial layout accuracy [Phase 2]
+          - color       (weight 1): perceptual color via CIEDE2000 [Phase 3]
+          - clip        (weight 2): CLIP/PIL visual similarity [Phase 4]
 
         Returns:
             Observation with done=True and reward in [0.0, 1.0].
@@ -156,12 +172,18 @@ class VisionCoderEnvironment:
         fmt = format_reward(completions)[0]
         val = html_validity_reward(completions)[0]
         struct = structural_similarity_reward(completions, solution=solutions)[0]
+        tb = text_block_reward(completions, solution=solutions)[0]
+        pos = position_reward(completions, solution=solutions)[0]
+        col = color_reward(completions, image=images)[0]
         clip = clip_visual_reward(completions, image=images)[0]
 
         raw_total = (
             REWARD_WEIGHTS["format"] * fmt
             + REWARD_WEIGHTS["validity"] * val
             + REWARD_WEIGHTS["structural"] * struct
+            + REWARD_WEIGHTS["text_block"] * tb
+            + REWARD_WEIGHTS["position"] * pos
+            + REWARD_WEIGHTS["color"] * col
             + REWARD_WEIGHTS["clip"] * clip
         )
         # Normalise to [0, 1]
@@ -178,6 +200,9 @@ class VisionCoderEnvironment:
                     "format": fmt,
                     "validity": val,
                     "structural": struct,
+                    "text_block": tb,
+                    "position": pos,
+                    "color": col,
                     "clip": clip,
                     "total": total,
                 },
