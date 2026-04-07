@@ -7,3 +7,5 @@ __pycache__/
 venv/
 dist/
 build/
+# Bundled dataset (tracked intentionally — use git add -f data/)
+

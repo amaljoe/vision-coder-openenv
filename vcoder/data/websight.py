@@ -1,71 +1,77 @@
 """WebSight dataset loader for VisionCoder.
 
-Loads the HuggingFaceM4/WebSight dataset and optionally filters
-samples by DOM complexity for difficulty-based task selection.
+Loads from bundled JSON files in data/ for instant reset() response.
+Falls back to HF streaming if the bundled files are missing.
 """
 from __future__ import annotations
 
+import base64
+import io
+import json
 import os
+from pathlib import Path
 from typing import Optional
+
+from PIL import Image
 
 _DATASET_CACHE: dict = {}
 
+# Bundled data lives next to the repo root
+_DATA_DIR = Path(__file__).parent.parent.parent / "data"
+
+
+def _load_bundled(difficulty: Optional[str]) -> list[dict] | None:
+    """Load pre-downloaded samples from data/<difficulty>.json."""
+    key = difficulty if difficulty in ("easy", "medium", "hard") else "easy"
+    path = _DATA_DIR / f"{key}.json"
+    if not path.exists():
+        return None
+    with open(path) as f:
+        rows = json.load(f)
+    samples = []
+    for row in rows:
+        img = Image.open(io.BytesIO(base64.b64decode(row["image_b64"]))).convert("RGB")
+        samples.append({"image": img, "solution": row["solution"]})
+    return samples
+
 
 def load_websight_dataset(
-    max_samples: int = 2000,
+    max_samples: int = 10,
     difficulty: Optional[str] = None,
     hf_token: Optional[str] = None,
 ) -> list[dict]:
-    """Load WebSight screenshot-HTML pairs from Hugging Face.
+    """Load WebSight screenshot-HTML pairs.
 
-    Args:
-        max_samples: Maximum number of samples to load.
-        difficulty:  One of "easy", "medium", "hard", or None (mixed).
-        hf_token:    Hugging Face token (falls back to HF_TOKEN env var).
+    Tries bundled data first (instant). Falls back to HF streaming if missing.
 
     Returns:
-        List of dicts with keys "image" (PIL.Image) and "solution" (str HTML).
+        List of dicts with "image" (PIL.Image) and "solution" (str HTML).
     """
-    cache_key = (max_samples, difficulty)
+    cache_key = (difficulty,)
     if cache_key in _DATASET_CACHE:
         return _DATASET_CACHE[cache_key]
 
-    token = hf_token or os.environ.get("HF_TOKEN")
+    samples = _load_bundled(difficulty)
+    if samples:
+        _DATASET_CACHE[cache_key] = samples
+        return samples
 
+    # Fallback: stream from HF (slow on first call)
+    token = hf_token or os.environ.get("HF_TOKEN")
     from datasets import load_dataset
 
-    ds = load_dataset(
-        "HuggingFaceM4/WebSight",
-        split="train",
-        token=token,
-    )
+    ds = load_dataset("HuggingFaceM4/WebSight", split="train", streaming=True, token=token)
 
-    # Map to standard field names
-    def _mapper(example):
-        return {
-            "image": example["image"],
-            "solution": example.get("html", example.get("solution", "")),
-        }
+    skip = {"easy": 0, "medium": 5000, "hard": 15000}.get(difficulty or "easy", 0)
+    if skip:
+        ds = ds.skip(skip)
 
-    ds = ds.map(_mapper, remove_columns=[c for c in ds.column_names if c not in ("image", "html", "solution")])
+    samples = []
+    for row in ds.take(max_samples):
+        samples.append({
+            "image": row["image"],
+            "solution": row.get("html", row.get("solution", "")),
+        })
 
-    # Difficulty-based index slicing (deterministic, no expensive per-row filtering)
-    total = len(ds)
-    if difficulty == "easy":
-        # First third — typically shorter pages in WebSight ordering
-        start, end = 0, min(max_samples, total // 3)
-    elif difficulty == "medium":
-        start = total // 3
-        end = min(start + max_samples, 2 * total // 3)
-    elif difficulty == "hard":
-        start = 2 * total // 3
-        end = min(start + max_samples, total)
-    else:
-        start, end = 0, min(max_samples, total)
-
-    indices = list(range(start, end))
-    ds = ds.select(indices)
-
-    samples = [{"image": row["image"], "solution": row["solution"]} for row in ds]
     _DATASET_CACHE[cache_key] = samples
     return samples
