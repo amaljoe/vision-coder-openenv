@@ -57,27 +57,37 @@ observation_space:
 reward:
   range: [0.0, 1.0]
   normalisation: weighted_sum_divided_by_total_weight
+  total_weight: 9.0
   components:
     - name: format
       weight: 1.0
       description: "Markdown fencing present and <html>/DOCTYPE tags found"
     - name: validity
       weight: 1.0
-      description: "HTML parseability, structural completeness, tag diversity"
+      description: "HTML parseability, structural completeness, tag diversity (>=5 unique tags)"
     - name: structural
       weight: 1.0
-      description: "DOM tag-sequence similarity + CSS class overlap vs. reference"
+      description: "DOM tag-sequence similarity + CSS class Jaccard overlap vs. reference"
+    - name: text_block
+      weight: 2.0
+      description: "Text block match rate + content similarity via Hungarian matching on IoU"
+    - name: position
+      weight: 1.0
+      description: "Spatial layout accuracy — normalised centre-to-centre distance of matched blocks"
+    - name: color
+      weight: 1.0
+      description: "Perceptual color accuracy via CIEDE2000 on sampled non-white pixels"
     - name: clip
-      weight: 3.0
-      description: "CLIP cosine similarity between rendered HTML and reference screenshot"
+      weight: 2.0
+      description: "CLIP cosine similarity after rendering (openai/clip-vit-base-patch32, CPU)"
 
 environment_variables:
   - name: HF_TOKEN
     required: true
-    description: "Hugging Face token to download the WebSight dataset"
+    description: "Hugging Face / API key for LLM calls (also checked as API_KEY)"
   - name: API_BASE_URL
     required: true
-    description: "OpenAI-compatible LLM endpoint for inference"
+    description: "OpenAI-compatible LLM endpoint (default: https://router.huggingface.co/v1)"
   - name: MODEL_NAME
     required: true
-    description: "Model identifier to use for LLM calls (must support vision)"
+    description: "Model identifier to use for LLM calls (must support vision/image inputs)"
