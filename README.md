@@ -34,31 +34,109 @@ Each episode:
 
 ## Baseline results
 
-Evaluated locally with `inference.py` (one episode per difficulty — easy / medium / hard).  
-Model: `qwen3.5:4b` via Ollama. Reward pipeline weight sum = 9.0.
+Evaluated locally via Ollama on one episode per difficulty (easy / medium / hard). Reward pipeline weight sum = 9.0. Renders are shown in the [Visual comparison](#visual-comparison) section below.
 
 ### Overall scores
 
 | Model | easy | medium | hard | **mean** |
 |---|---|---|---|---|
-| `qwen3.5:4b` | 0.739 | 0.686 | 0.469 | **0.631** |
-| `nemotron-3-nano:4b` | 0.732 | 0.617 | 0.640 | **0.663** |
-
-> Note: scores dropped vs. the previous 4-signal baseline (mean ~0.81) because `text_block` and `position` add genuine penalties for layout mismatches that pixel-diff alone missed.
+| `qwen3.5:4b` | 0.436 | 0.449 | 0.390 | **0.425** |
+| `nemotron-3-nano:4b` | 0.482 | 0.424 | 0.393 | **0.433** |
 
 ### Per-signal breakdown — `qwen3.5:4b`
 
 | Difficulty | total | format | validity | structural | text_block | position | color | clip |
 |---|---|---|---|---|---|---|---|---|
-| easy   | 0.739 | 1.000 | 1.000 | 0.614 | 0.333 | 0.972 | 0.499 | 0.948 |
-| medium | 0.686 | 1.000 | 1.000 | 0.504 | 0.508 | 0.518 | 0.291 | 0.920 |
-| hard   | 0.469 | 0.500 | 1.000 | 0.345 | 0.051 | 0.053 | 0.888 | 0.666 |
+| easy   | 0.436 | 0.500 | 1.000 | 0.507 | 0.136 | 0.677 | 0.225 | 0.369 |
+| medium | 0.449 | 0.500 | 1.000 | 0.406 | 0.086 | 0.355 | 0.310 | 0.647 |
+| hard   | 0.390 | 0.500 | 1.000 | 0.349 | 0.098 | 0.159 | 0.108 | 0.600 |
 
 **Key observations:**
-- `text_block` and `position` collapse on hard tasks (0.05) — the model reproduces visual style but places elements incorrectly in complex layouts
-- `color` is unusually high on hard (0.89) despite low CLIP (0.67) — the dark dashboard palette is replicated but at wrong positions
-- `format` penalty on hard (0.5) reflects qwen3.5 wrapping output in markdown fences; the underlying HTML is valid
+- `format` = 0.5 across all difficulties — qwen3.5 wraps output in markdown fences which are stripped, but the penalty applies
 - `validity` = 1.0 across all difficulties — generated HTML is always well-formed
+- `structural` and `clip` degrade progressively from easy → hard as layout complexity increases
+- Hard task (Pulsar dashboard): model correctly renders the dark sidebar but leaves the main content area empty — explains high `color` but low `text_block`/`position`
+
+### Per-signal breakdown — `nemotron-3-nano:4b`
+
+| Difficulty | total | format | validity | structural | text_block | position | color | clip |
+|---|---|---|---|---|---|---|---|---|
+| easy   | 0.482 | 0.500 | 1.000 | 0.726 | 0.079 | 0.394 | 0.190 | 0.686 |
+| medium | 0.424 | 0.500 | 1.000 | 0.689 | 0.068 | 0.159 | 0.326 | 0.501 |
+| hard   | 0.393 | 0.500 | 1.000 | 0.573 | 0.017 | 0.085 | 0.295 | 0.527 |
+
+**Key observations:**
+- nemotron-3-nano:4b supports vision inputs via Ollama — image was passed directly (no text-only fallback needed)
+- `structural` is consistently higher than qwen3.5:4b (0.73 vs 0.51 on easy) — nemotron produces cleaner tag hierarchies despite shorter outputs
+- `text_block` collapses across all difficulties (0.02–0.08) — the model generates mostly structural scaffolding without reproducing actual text content
+- `position` and `clip` are lower than qwen3.5:4b, reflecting shorter/simpler HTML that misses detail at higher difficulty
+
+---
+
+## Visual comparison
+
+### Easy — Sign-in form
+
+| Reference | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|
+| ![ref](assets/ref_easy.png) | ![qwen](assets/qwen_easy.png) | ![nemotron](assets/nemotron_easy.png) |
+
+| Signal | Weight | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|---|
+| format | 1× | 0.500 | 0.500 |
+| validity | 1× | 1.000 | 1.000 |
+| structural | 1× | 0.507 | 0.726 |
+| text_block | 2× | 0.136 | 0.079 |
+| position | 1× | 0.677 | 0.394 |
+| color | 1× | 0.225 | 0.190 |
+| clip | 2× | 0.369 | 0.686 |
+| **total** | **9** | **0.436** | **0.482** |
+
+**Analysis:** qwen correctly reproduces the sign-in card layout with email/password fields and the purple CTA button — `position` (0.68) and `text_block` (0.14) reflect this fidelity. nemotron generates a completely generic "My Page" skeleton unrelated to the reference, yet scores higher overall (0.482) because the clean tag structure inflates `structural` (0.73) and CLIP picks up the similar background color (0.69).
+
+---
+
+### Medium — SaaS landing page
+
+| Reference | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|
+| ![ref](assets/ref_medium.png) | ![qwen](assets/qwen_medium.png) | ![nemotron](assets/nemotron_medium.png) |
+
+| Signal | Weight | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|---|
+| format | 1× | 0.500 | 0.500 |
+| validity | 1× | 1.000 | 1.000 |
+| structural | 1× | 0.406 | 0.689 |
+| text_block | 2× | 0.086 | 0.068 |
+| position | 1× | 0.355 | 0.159 |
+| color | 1× | 0.310 | 0.326 |
+| clip | 2× | 0.647 | 0.501 |
+| **total** | **9** | **0.449** | **0.424** |
+
+**Analysis:** qwen reproduces the "Streamline / Ship faster, break nothing." hero with correct nav links, CTA buttons, and "NOW IN BETA" badge — `clip` (0.65) confirms strong visual similarity. The lavender hero background is missing (explains lower `color`). nemotron again outputs a generic "Welcome / This is a sample page." template — the only reward it earns is structural validity and coincidental color overlap.
+
+---
+
+### Hard — CI/CD dashboard
+
+| Reference | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|
+| ![ref](assets/ref_hard.png) | ![qwen](assets/qwen_hard.png) | ![nemotron](assets/nemotron_hard.png) |
+
+| Signal | Weight | qwen3.5:4b | nemotron-3-nano:4b |
+|---|---|---|---|
+| format | 1× | 0.500 | 0.500 |
+| validity | 1× | 1.000 | 1.000 |
+| structural | 1× | 0.349 | 0.573 |
+| text_block | 2× | 0.098 | 0.017 |
+| position | 1× | 0.159 | 0.085 |
+| color | 1× | 0.108 | 0.295 |
+| clip | 2× | 0.600 | 0.527 |
+| **total** | **9** | **0.390** | **0.393** |
+
+**Analysis:** qwen gets the dark sidebar (Pulsar logo, nav links) right but leaves the main content area completely empty — no stats cards, no deployments table. This explains the pattern: `clip` is decent (0.60, picks up the dark theme) but `text_block` (0.10) and `position` (0.16) collapse because the right-side content is absent. nemotron again outputs a generic template, scoring comparably due to structural cleanliness despite zero visual resemblance.
+
+---
 
 ## Installation
 
