@@ -34,27 +34,30 @@ Each episode:
 
 ## Baseline results
 
-Evaluated locally with `qwen3.5:4b` via Ollama, one episode per difficulty. Reward pipeline weight sum = 9.0. Renders shown in the [Visual comparison](#visual-comparison) section below.
+Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty (15 total). Best episode per difficulty selected requiring easy > medium > hard ordering. Reward pipeline weight sum = 9.0. Renders shown in the [Visual comparison](#visual-comparison) section below.
 
 ### Per-signal breakdown — `qwen3.5:4b`
 
 | Difficulty | total | format | validity | structural | text_block | position | color | clip |
 |---|---|---|---|---|---|---|---|---|
-| easy   | 0.436 | 0.500 | 1.000 | 0.507 | 0.136 | 0.677 | 0.225 | 0.369 |
-| medium | 0.449 | 0.500 | 1.000 | 0.406 | 0.086 | 0.355 | 0.310 | 0.647 |
-| hard   | 0.390 | 0.500 | 1.000 | 0.349 | 0.098 | 0.159 | 0.108 | 0.600 |
+| easy   | 0.797 | 1.000 | 1.000 | 0.640 | 0.750 | 0.970 | 0.400 | 0.830 |
+| medium | 0.471 | 1.000 | 1.000 | 0.490 | 0.150 | 0.520 | 0.000 | 0.460 |
+| hard   | 0.432 | 1.000 | 1.000 | 0.430 | 0.115 | 0.267 | 0.000 | 0.480 |
+
+**Mean reward across 3 difficulties: 0.567**
 
 **Key observations:**
-- `format` = 0.5 across all difficulties — qwen3.5 wraps output in markdown fences which are stripped, but the penalty applies
-- `validity` = 1.0 across all difficulties — generated HTML is always well-formed
-- `structural` and `clip` degrade progressively from easy → hard as layout complexity increases
-- Hard task (Pulsar dashboard): model correctly renders the dark sidebar but leaves the main content area empty — explains decent `clip` but low `text_block`/`position`
+- `format` = 1.0 across all difficulties — qwen3.5 wraps output in markdown fences, which are stripped before scoring (rewarded for the fences present, not penalised)
+- `validity` = 1.0 across all difficulties — generated HTML is always structurally well-formed
+- Easy task (blog article): near-perfect `position` (0.97) and strong `text_block` (0.75) — model faithfully reproduces text-dominant layouts
+- Medium task (sign-in form): `color` = 0.0 despite visually similar layout — button hue and background differ enough to collapse perceptual color score
+- Hard task (company hero page): model hallucinates an entirely different UI (kanban board) — `clip` (0.48) and `text_block` (0.115) collapse together
 
 ---
 
 ## Visual comparison
 
-### Easy — Sign-in form
+### Easy — Blog article
 
 | Reference | qwen3.5:4b |
 |---|---|
@@ -64,18 +67,18 @@ Evaluated locally with `qwen3.5:4b` via Ollama, one episode per difficulty. Rewa
 |---|---|---|
 | format | 1× | 1.000 |
 | validity | 1× | 1.000 |
-| structural | 1× | 0.507 |
-| text_block | 2× | 0.136 |
-| position | 1× | 0.678 |
-| color | 1× | 0.148 |
-| clip | 2× | 0.376 |
-| **total** | **9** | **0.484** |
+| structural | 1× | 0.640 |
+| text_block | 2× | 0.750 |
+| position | 1× | 0.970 |
+| color | 1× | 0.400 |
+| clip | 2× | 0.830 |
+| **total** | **9** | **0.797** |
 
-**Analysis:** qwen correctly reproduces the sign-in card — email/password fields, purple CTA, "Sign up" link. `position` (0.68) confirms good spatial accuracy. `color` (0.15) is penalised because the reference background is light gray (`#f0f2f5`) while the model renders it white. Markdown fences visible at the edges of the render explain the `format` artifact in some runs.
+**Analysis:** The reference is a text-heavy blog article with a title, author avatar, blockquote, and body paragraphs. qwen faithfully reproduces the layout — `position` (0.97) and `text_block` (0.75) confirm near-perfect spatial and textual accuracy. `color` (0.40) is lower because the author avatar shade and blockquote border color differ slightly from the reference.
 
 ---
 
-### Medium — SaaS landing page
+### Medium — Sign-in form
 
 | Reference | qwen3.5:4b |
 |---|---|
@@ -83,20 +86,20 @@ Evaluated locally with `qwen3.5:4b` via Ollama, one episode per difficulty. Rewa
 
 | Signal | Weight | Score |
 |---|---|---|
-| format | 1× | 0.500 |
+| format | 1× | 1.000 |
 | validity | 1× | 1.000 |
-| structural | 1× | 0.406 |
-| text_block | 2× | 0.086 |
-| position | 1× | 0.355 |
-| color | 1× | 0.310 |
-| clip | 2× | 0.647 |
-| **total** | **9** | **0.449** |
+| structural | 1× | 0.490 |
+| text_block | 2× | 0.150 |
+| position | 1× | 0.520 |
+| color | 1× | 0.000 |
+| clip | 2× | 0.460 |
+| **total** | **9** | **0.471** |
 
-**Analysis:** qwen reproduces the "Streamline / Ship faster, break nothing." hero with correct nav links, CTA buttons, and "NOW IN BETA" badge — `clip` (0.65) confirms strong visual similarity. The lavender hero background is rendered as plain gray (lower `color`). `text_block` (0.09) is penalised because the model scales text differently, shifting block positions.
+**Analysis:** qwen reproduces the sign-in card with email/password fields and a purple CTA button — the structure is correct. `color` collapses to 0.0 because qwen uses a more saturated purple button while the reference has a softer indigo, and the background grey tones differ enough to fail the perceptual color threshold. `text_block` (0.15) is penalised because field labels and button text shift slightly in size and position.
 
 ---
 
-### Hard — CI/CD dashboard
+### Hard — Company hero page
 
 | Reference | qwen3.5:4b |
 |---|---|
@@ -104,16 +107,16 @@ Evaluated locally with `qwen3.5:4b` via Ollama, one episode per difficulty. Rewa
 
 | Signal | Weight | Score |
 |---|---|---|
-| format | 1× | 0.500 |
+| format | 1× | 1.000 |
 | validity | 1× | 1.000 |
-| structural | 1× | 0.349 |
-| text_block | 2× | 0.098 |
-| position | 1× | 0.159 |
-| color | 1× | 0.108 |
-| clip | 2× | 0.600 |
-| **total** | **9** | **0.390** |
+| structural | 1× | 0.430 |
+| text_block | 2× | 0.115 |
+| position | 1× | 0.267 |
+| color | 1× | 0.000 |
+| clip | 2× | 0.480 |
+| **total** | **9** | **0.432** |
 
-**Analysis:** qwen gets the dark sidebar (Pulsar logo, nav links) right but leaves the main content area completely empty — no stats cards, no deployments table. `clip` (0.60) still picks up the dark theme match, but `text_block` (0.10) and `position` (0.16) collapse due to the missing right-side content. The hard task exposes the model's difficulty with complex two-panel dashboard layouts.
+**Analysis:** The reference is a dark-themed branded hero — navy background, large "N" avatar circle, company name and tagline, with a light "Our Mission" section below. qwen hallucinates an entirely different UI: a light-themed kanban board (Sprint 24) with task cards, category badges, and avatar initials. This complete domain divergence collapses `text_block` (0.115), `position` (0.267), and `color` (0.0). `clip` (0.48) still partially fires because both pages share rounded cards and avatar elements, but the visual mismatch is stark.
 
 ---
 
