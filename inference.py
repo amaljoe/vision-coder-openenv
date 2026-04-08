@@ -154,6 +154,9 @@ def run_inference() -> None:
             f"format={rewards.get('format', 0.0):.4f} "
             f"validity={rewards.get('validity', 0.0):.4f} "
             f"structural={rewards.get('structural', 0.0):.4f} "
+            f"text_block={rewards.get('text_block', 0.0):.4f} "
+            f"position={rewards.get('position', 0.0):.4f} "
+            f"color={rewards.get('color', 0.0):.4f} "
             f"clip={rewards.get('clip', 0.0):.4f}",
             flush=True,
         )

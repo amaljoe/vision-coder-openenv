@@ -20,31 +20,45 @@ Each episode:
 
 ### Reward signals
 
-| Signal | Weight | Description |
-|---|---|---|
-| `format` | 1× | Markdown fencing, `<html>` / doctype tags present |
-| `validity` | 1× | HTML parseability, structure, tag diversity |
-| `structural` | 1× | DOM tag-sequence and CSS-class overlap vs. reference |
-| `clip` | 3× | CLIP cosine similarity after rendering (`openai/clip-vit-base-patch32`, CPU) |
+7 signals across 4 phases, normalised to [0, 1] by dividing by the weight sum (9.0):
 
-The total reward is the weighted sum normalised to [0, 1] by dividing by 6.
+| Signal | Weight | Phase | Description |
+|---|---|---|---|
+| `format` | 1× | 0 | Markdown fencing, `<html>` / doctype tags present |
+| `validity` | 1× | 0 | HTML parseability, structural tags, tag diversity (≥5 unique) |
+| `structural` | 1× | 0 | DOM tag-sequence similarity + CSS-class Jaccard overlap |
+| `text_block` | 2× | 1 | Text block match rate + text content similarity (Hungarian matching on IoU) |
+| `position` | 1× | 2 | Spatial layout accuracy — normalised centre-to-centre distance of matched blocks |
+| `color` | 1× | 3 | Perceptual color accuracy via CIEDE2000 on sampled non-white pixels |
+| `clip` | 2× | 4 | CLIP cosine similarity after Playwright render (`openai/clip-vit-base-patch32`, CPU) |
 
 ## Baseline results
 
-Evaluated locally with `inference.py` (3 episodes — easy / medium / hard).
+Evaluated locally with `inference.py` (one episode per difficulty — easy / medium / hard).  
+Model: `qwen3.5:4b` via Ollama. Reward pipeline weight sum = 9.0.
+
+### Overall scores
 
 | Model | easy | medium | hard | **mean** |
 |---|---|---|---|---|
-| `qwen3.5:4b` (Ollama) | 0.917 | 0.878 | 0.641 | **0.812** |
-| `nemotron-3-nano:4b` (Ollama) | 0.732 | 0.617 | 0.640 | **0.663** |
+| `qwen3.5:4b` | 0.739 | 0.686 | 0.469 | **0.631** |
+| `nemotron-3-nano:4b` | 0.732 | 0.617 | 0.640 | **0.663** |
 
-Reward breakdown for `qwen3.5:4b`:
+> Note: scores dropped vs. the previous 4-signal baseline (mean ~0.81) because `text_block` and `position` add genuine penalties for layout mismatches that pixel-diff alone missed.
 
-| Difficulty | format | validity | structural | clip |
-|---|---|---|---|---|
-| easy | 1.000 | 1.000 | 0.614 | 0.963 |
-| medium | 1.000 | 1.000 | 0.560 | 0.902 |
-| hard | 0.500 | 1.000 | 0.332 | 0.671 |
+### Per-signal breakdown — `qwen3.5:4b`
+
+| Difficulty | total | format | validity | structural | text_block | position | color | clip |
+|---|---|---|---|---|---|---|---|---|
+| easy   | 0.739 | 1.000 | 1.000 | 0.614 | 0.333 | 0.972 | 0.499 | 0.948 |
+| medium | 0.686 | 1.000 | 1.000 | 0.504 | 0.508 | 0.518 | 0.291 | 0.920 |
+| hard   | 0.469 | 0.500 | 1.000 | 0.345 | 0.051 | 0.053 | 0.888 | 0.666 |
+
+**Key observations:**
+- `text_block` and `position` collapse on hard tasks (0.05) — the model reproduces visual style but places elements incorrectly in complex layouts
+- `color` is unusually high on hard (0.89) despite low CLIP (0.67) — the dark dashboard palette is replicated but at wrong positions
+- `format` penalty on hard (0.5) reflects qwen3.5 wrapping output in markdown fences; the underlying HTML is valid
+- `validity` = 1.0 across all difficulties — generated HTML is always well-formed
 
 ## Installation
 
