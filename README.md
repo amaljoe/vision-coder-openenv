@@ -66,13 +66,47 @@ Model: `qwen3.5:4b` via Ollama. Reward pipeline weight sum = 9.0.
 pip install -e .
 ```
 
-Dependencies: `fastapi`, `uvicorn`, `httpx`, `pillow`, `pydantic`
+## Running inference
+
+```bash
+export API_BASE_URL=https://router.huggingface.co/v1
+export MODEL_NAME=Qwen/Qwen2.5-VL-72B-Instruct
+export HF_TOKEN=hf_...
+python inference.py
+```
+
+Required environment variables:
+
+| Variable | Description |
+|---|---|
+| `HF_TOKEN` | Hugging Face token (used as API key) |
+| `API_BASE_URL` | OpenAI-compatible LLM endpoint |
+| `MODEL_NAME` | Vision-capable model ID |
+
+Inference stdout format:
+
+```
+[START] task=<difficulty> env=vision-coder model=<model>
+[STEP]  step=<n> action=<html_preview> reward=<0.00> done=<true|false> error=<msg|null>
+[END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,...>
+```
 
 ## Running the server
 
 ```bash
-uvicorn openenv.server.app:app --host 0.0.0.0 --port 8080
+uvicorn openenv.server.app:app --host 0.0.0.0 --port 7860
 ```
+
+## Docker / HF Spaces deployment
+
+```bash
+docker build -t vision-coder-openenv .
+docker run -p 7860:7860 vision-coder-openenv
+```
+
+The image pre-downloads `openai/clip-vit-base-patch32` weights (~600 MB) and installs Playwright Chromium so the container starts instantly.
+
+HF Space: [amaljoe88/vision-coder-openenv](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)
 
 ## Client usage
 
@@ -80,7 +114,7 @@ uvicorn openenv.server.app:app --host 0.0.0.0 --port 8080
 from openenv.client import VisionCoderClient
 from openenv.models import Action
 
-with VisionCoderClient("http://localhost:8080") as client:
+with VisionCoderClient("http://localhost:7860") as client:
     obs = client.reset()
 
     # Decode the target screenshot
@@ -106,11 +140,26 @@ with VisionCoderClient("http://localhost:8080") as client:
 ## Project structure
 
 ```
-openenv/
-├── __init__.py
-├── client.py          # Synchronous HTTP client
-├── models.py          # Action, Observation, State (Pydantic)
-└── server/
-    ├── app.py         # FastAPI application
-    └── environment.py # VisionCoderEnvironment logic
+├── inference.py           # Baseline inference script (runs 3 episodes)
+├── openenv.yaml           # OpenEnv spec
+├── Dockerfile
+├── openenv/               # OpenEnv SDK package
+│   ├── client.py          # Synchronous HTTP client
+│   ├── models.py          # Action, Observation, State (Pydantic)
+│   └── server/
+│       ├── app.py         # FastAPI application
+│       └── environment.py # VisionCoderEnvironment + reward pipeline
+├── vcoder/                # Reward modules
+│   └── rewards/
+│       ├── format_rewards.py
+│       ├── validity_rewards.py
+│       ├── structural_rewards.py
+│       ├── text_block_rewards.py
+│       ├── position_rewards.py
+│       ├── color_rewards.py
+│       └── visual_rewards.py  # CLIP (openai/clip-vit-base-patch32)
+└── data/                  # Bundled synthetic samples (5 per difficulty)
+    ├── easy.json
+    ├── medium.json
+    └── hard.json
 ```
