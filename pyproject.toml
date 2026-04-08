@@ -36,6 +36,11 @@ markers = [
     "integration: marks tests that require Playwright, scipy, and scikit-image (deselect with '-m not integration')",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
 [tool.setuptools.package-dir]
 "openenv" = "."
 "openenv.server" = "server"

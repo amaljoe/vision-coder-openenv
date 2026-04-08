@@ -51,6 +51,7 @@ def _sample_pixels(
 def color_reward(
     completions: list[list[dict]],
     image: Optional[list[Image.Image]] = None,
+    pred_image: Optional[list[Optional[Image.Image]]] = None,
 ) -> list[float]:
     """Score perceptual color accuracy between rendered HTML and reference.
 
@@ -60,6 +61,8 @@ def color_reward(
     Args:
         completions: List of completion message lists.
         image:       List of reference PIL Images (one per completion).
+        pred_image:  Optional pre-rendered prediction images (skips rendering
+                     when provided — avoids duplicate Playwright launches).
 
     Returns:
         List of float scores in [0.0, 1.0].
@@ -78,7 +81,11 @@ def color_reward(
             import numpy as np
             from skimage.color import deltaE_ciede2000, rgb2lab
 
-            rendered = _render_html(html)
+            # Use pre-rendered image if supplied, otherwise render now
+            if pred_image is not None and i < len(pred_image):
+                rendered = pred_image[i]
+            else:
+                rendered = _render_html(html)
             if rendered is None:
                 results.append(0.5)
                 continue

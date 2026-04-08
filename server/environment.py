@@ -22,6 +22,7 @@ from vcoder.rewards.position_rewards import position_reward
 from vcoder.rewards.structural_rewards import structural_similarity_reward
 from vcoder.rewards.text_block_rewards import text_block_reward
 from vcoder.rewards.validity_rewards import html_validity_reward
+from vcoder.rewards import extract_html
 from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
 
 PROMPT = (
@@ -174,8 +175,12 @@ class VisionCoderEnvironment:
         struct = structural_similarity_reward(completions, solution=solutions)[0]
         tb = text_block_reward(completions, solution=solutions)[0]
         pos = position_reward(completions, solution=solutions)[0]
-        col = color_reward(completions, image=images)[0]
-        clip = clip_visual_reward(completions, image=images)[0]
+        # Render pred HTML once — shared by color and clip rewards (avoids duplicate Playwright launches)
+        pred_render = _render_html(extract_html(action.html))
+        pred_renders = [pred_render]
+
+        col = color_reward(completions, image=images, pred_image=pred_renders)[0]
+        clip = clip_visual_reward(completions, image=images, pred_image=pred_renders)[0]
 
         raw_total = (
             REWARD_WEIGHTS["format"] * fmt

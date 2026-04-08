@@ -496,70 +496,90 @@ class TestSamplePixels:
 
 
 class TestVisualRewards:
-    def test_pil_mode_identical_images(self):
+    """Tests for clip_visual_reward — uses pred_image param to avoid Playwright."""
+
+    def test_pred_image_identical_high_score(self):
+        """Passing identical pred_image + ref image should give a high score."""
         from vcoder.rewards import visual_rewards
 
         img = _solid_image((128, 64, 32))
-        with patch.object(visual_rewards, "_render_html", return_value=img):
+        with patch.object(visual_rewards, "_clip_similarity", return_value=0.97):
             scores = visual_rewards.clip_visual_reward(
-                _make_completion(SIMPLE_HTML), image=[img]
+                _make_completion(SIMPLE_HTML), image=[img], pred_image=[img]
             )
-        assert scores[0] > 0.9
+        assert scores[0] == pytest.approx(0.97)
 
-    def test_pil_mode_different_images(self):
+    def test_pred_image_different_low_score(self):
+        """Different pred and ref images should score lower."""
         from vcoder.rewards import visual_rewards
 
         ref = _solid_image((255, 0, 0))
         pred = _solid_image((0, 255, 0))
-        with patch.object(visual_rewards, "_render_html", return_value=pred):
+        with patch.object(visual_rewards, "_clip_similarity", return_value=0.55):
             scores = visual_rewards.clip_visual_reward(
-                _make_completion(SIMPLE_HTML), image=[ref]
+                _make_completion(SIMPLE_HTML), image=[ref], pred_image=[pred]
             )
-        assert scores[0] < 0.9
+        assert scores[0] == pytest.approx(0.55)
+
+    def test_pred_image_none_triggers_render(self):
+        """When pred_image is None, _render_html should be called."""
+        from vcoder.rewards import visual_rewards
+
+        img = _solid_image((10, 20, 30))
+        with (
+            patch.object(visual_rewards, "_render_html", return_value=img) as mock_render,
+            patch.object(visual_rewards, "_clip_similarity", return_value=0.8),
+        ):
+            visual_rewards.clip_visual_reward(
+                _make_completion(SIMPLE_HTML), image=[img], pred_image=None
+            )
+        mock_render.assert_called_once()
+
+    def test_pred_image_provided_skips_render(self):
+        """When pred_image is provided, _render_html should NOT be called."""
+        from vcoder.rewards import visual_rewards
+
+        img = _solid_image((10, 20, 30))
+        with (
+            patch.object(visual_rewards, "_render_html") as mock_render,
+            patch.object(visual_rewards, "_clip_similarity", return_value=0.8),
+        ):
+            visual_rewards.clip_visual_reward(
+                _make_completion(SIMPLE_HTML), image=[img], pred_image=[img]
+            )
+        mock_render.assert_not_called()
 
     def test_render_failure_returns_neutral(self):
         from vcoder.rewards import visual_rewards
 
-        with patch.object(visual_rewards, "_render_html", return_value=None):
-            scores = visual_rewards.clip_visual_reward(
-                _make_completion(SIMPLE_HTML), image=[_white_image()]
-            )
+        scores = visual_rewards.clip_visual_reward(
+            _make_completion(SIMPLE_HTML), image=[_white_image()], pred_image=[None]
+        )
         assert scores[0] == 0.5
 
     def test_no_reference_returns_neutral(self):
         from vcoder.rewards import visual_rewards
 
-        with patch.object(visual_rewards, "_render_html", return_value=_white_image()):
-            scores = visual_rewards.clip_visual_reward(
-                _make_completion(SIMPLE_HTML), image=None
-            )
+        img = _white_image()
+        scores = visual_rewards.clip_visual_reward(
+            _make_completion(SIMPLE_HTML), image=None, pred_image=[img]
+        )
         assert scores[0] == 0.5
 
-    def test_clip_env_flag_without_torch_falls_back(self):
-        """When ENABLE_CLIP=1 but torch unavailable, falls back to PIL mode."""
+    def test_clip_failure_falls_back_to_pil(self):
+        """If CLIP raises, PIL fallback is used."""
         from vcoder.rewards import visual_rewards
-        import sys
-        import builtins
 
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name == "torch":
-                raise ImportError("torch not installed")
-            return real_import(name, *args, **kwargs)
-
-        img = _solid_image((10, 20, 30))
+        img = _solid_image((100, 200, 50))
         with (
-            patch.dict(os.environ, {"ENABLE_CLIP": "1"}),
-            patch("builtins.__import__", side_effect=mock_import),
-            patch.object(visual_rewards, "_render_html", return_value=img),
+            patch.object(visual_rewards, "_get_clip", side_effect=ImportError("no torch")),
             patch.object(visual_rewards, "_pil_similarity", return_value=0.77) as mock_pil,
         ):
             scores = visual_rewards.clip_visual_reward(
-                _make_completion(SIMPLE_HTML), image=[img]
+                _make_completion(SIMPLE_HTML), image=[img], pred_image=[img]
             )
-        # Should have used PIL fallback (mocked to 0.77)
         assert scores[0] == pytest.approx(0.77)
+        mock_pil.assert_called_once()
 
     def test_pil_similarity_identical(self):
         from vcoder.rewards.visual_rewards import _pil_similarity
