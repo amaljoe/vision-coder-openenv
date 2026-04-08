@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "ollama")  # Ollama ignores the key
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "sk-placeholder")  # must be set for real endpoints
 SERVER_PORT = int(os.environ.get("INFERENCE_SERVER_PORT", "18080"))
 SERVER_URL = f"http://127.0.0.1:{SERVER_PORT}"
 
@@ -96,14 +96,13 @@ def _generate_html(client: OpenAI, screenshot_b64: str, prompt: str) -> str:
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:image/png;base64,{screenshot_b64}",
-                            "detail": "high",
                         },
                     },
                     {"type": "text", "text": prompt},
                 ],
             },
         ],
-        max_tokens=8192,
+        max_tokens=4096,
         temperature=0.2,
     )
     return response.choices[0].message.content or ""
@@ -134,7 +133,11 @@ def run_inference() -> None:
         print(f"[START] episode_id={episode_id} difficulty={difficulty}", flush=True)
 
         # ---- generate ----
-        html = _generate_html(client, screenshot_b64, prompt)
+        try:
+            html = _generate_html(client, screenshot_b64, prompt)
+        except Exception as exc:
+            print(f"[WARN]  LLM call failed: {exc}", flush=True)
+            html = "<!DOCTYPE html><html><head></head><body><p>Generation failed.</p></body></html>"
 
         # ---- step ----
         step_resp = env_client.post("/step", json={"html": html})
