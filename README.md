@@ -62,16 +62,16 @@ Evaluated locally with `qwen3.5:4b` via Ollama, one episode per difficulty. Rewa
 
 | Signal | Weight | Score |
 |---|---|---|
-| format | 1× | 0.500 |
+| format | 1× | 1.000 |
 | validity | 1× | 1.000 |
 | structural | 1× | 0.507 |
 | text_block | 2× | 0.136 |
-| position | 1× | 0.677 |
-| color | 1× | 0.225 |
-| clip | 2× | 0.369 |
-| **total** | **9** | **0.436** |
+| position | 1× | 0.678 |
+| color | 1× | 0.148 |
+| clip | 2× | 0.376 |
+| **total** | **9** | **0.484** |
 
-**Analysis:** qwen correctly reproduces the sign-in card layout — email/password fields, purple CTA button, "Don't have an account?" footer link. `position` (0.68) confirms good spatial accuracy. `color` (0.23) is penalised because the reference uses a light gray background (`#f0f2f5`) that the model renders as pure white.
+**Analysis:** qwen correctly reproduces the sign-in card — email/password fields, purple CTA, "Sign up" link. `position` (0.68) confirms good spatial accuracy. `color` (0.15) is penalised because the reference background is light gray (`#f0f2f5`) while the model renders it white. Markdown fences visible at the edges of the render explain the `format` artifact in some runs.
 
 ---
 
