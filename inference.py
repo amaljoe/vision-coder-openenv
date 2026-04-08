@@ -67,7 +67,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     # Truncate action to avoid flooding stdout
     action_summary = action[:80].replace("\n", " ").strip() if action else "null"
     print(
-        f"[STEP] step={step} action={action_summary!r} reward={reward:.2f} "
+        f"[STEP] step={step} action={action_summary} reward={reward:.2f} "
         f"done={done_val} error={error_val}",
         flush=True,
     )
