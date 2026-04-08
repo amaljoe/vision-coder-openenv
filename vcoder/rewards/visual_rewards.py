@@ -82,16 +82,20 @@ def _pil_similarity(img_a: Image.Image, img_b: Image.Image, size: tuple = (128, 
 def clip_visual_reward(
     completions: list[list[dict]],
     image: Optional[list[Image.Image]] = None,
+    pred_image: Optional[list[Optional[Image.Image]]] = None,
 ) -> list[float]:
     """Score visual similarity between rendered HTML and reference screenshot.
 
-    Renders each completion's HTML with Playwright, then computes CLIP cosine
-    similarity against the reference image. Falls back to PIL pixel-diff if
-    CLIP is unavailable. Returns 0.5 if rendering fails.
+    Renders each completion's HTML with Playwright (unless pred_image is
+    provided), then computes CLIP cosine similarity against the reference.
+    Falls back to PIL pixel-diff if CLIP is unavailable.
+    Returns 0.5 if rendering fails.
 
     Args:
         completions: List of completion message lists.
         image:       List of reference PIL Images (one per completion).
+        pred_image:  Optional pre-rendered prediction images (skips rendering
+                     when provided — avoids duplicate Playwright launches).
 
     Returns:
         List of float scores in [0.0, 1.0].
@@ -110,7 +114,12 @@ def clip_visual_reward(
         html = extract_html(content)
         ref_image = image[i] if image and i < len(image) else None
 
-        rendered = _render_html(html)
+        # Use pre-rendered image if supplied, otherwise render now
+        if pred_image is not None and i < len(pred_image):
+            rendered = pred_image[i]
+        else:
+            rendered = _render_html(html)
+
         if rendered is None or ref_image is None:
             results.append(0.5)
             continue
