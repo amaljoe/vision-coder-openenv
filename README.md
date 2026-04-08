@@ -25,9 +25,26 @@ Each episode:
 | `format` | 1× | Markdown fencing, `<html>` / doctype tags present |
 | `validity` | 1× | HTML parseability, structure, tag diversity |
 | `structural` | 1× | DOM tag-sequence and CSS-class overlap vs. reference |
-| `clip` | 3× | CLIP image-image similarity after rendering |
+| `clip` | 3× | CLIP cosine similarity after rendering (`openai/clip-vit-base-patch32`, CPU) |
 
-The total reward is the weighted sum across all four signals.
+The total reward is the weighted sum normalised to [0, 1] by dividing by 6.
+
+## Baseline results
+
+Evaluated locally with `inference.py` (3 episodes — easy / medium / hard).
+
+| Model | easy | medium | hard | **mean** |
+|---|---|---|---|---|
+| `qwen3.5:4b` (Ollama) | 0.917 | 0.878 | 0.641 | **0.812** |
+| `nemotron-3-nano:4b` (Ollama) | 0.732 | 0.617 | 0.640 | **0.663** |
+
+Reward breakdown for `qwen3.5:4b`:
+
+| Difficulty | format | validity | structural | clip |
+|---|---|---|---|---|
+| easy | 1.000 | 1.000 | 0.614 | 0.963 |
+| medium | 1.000 | 1.000 | 0.560 | 0.902 |
+| hard | 0.500 | 1.000 | 0.332 | 0.671 |
 
 ## Installation
 

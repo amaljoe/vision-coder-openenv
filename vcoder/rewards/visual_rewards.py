@@ -1,7 +1,9 @@
-"""Visual reward: image similarity after rendering HTML.
+"""Visual reward: CLIP image-embedding cosine similarity after rendering HTML.
 
-Uses PIL pixel-difference similarity — no torch/CLIP required, so the
-server stays well within the 16 GB HF Spaces memory limit.
+Uses openai/clip-vit-base-patch32 on CPU — no GPU required, stays well
+within the 16 GB HF Spaces memory limit (~1.5 GB total for model + inference).
+
+Falls back to PIL pixel-diff if CLIP fails to load.
 """
 from __future__ import annotations
 
@@ -14,6 +16,23 @@ from PIL import Image
 from vcoder.rewards import extract_html
 
 logger = logging.getLogger(__name__)
+
+_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+_clip_model = None
+_clip_processor = None
+
+
+def _get_clip():
+    """Lazy singleton — loads CLIP once, reuses across calls."""
+    global _clip_model, _clip_processor
+    if _clip_model is None:
+        from transformers import CLIPModel, CLIPProcessor
+        logger.info("Loading CLIP model %s …", _CLIP_MODEL_NAME)
+        _clip_model = CLIPModel.from_pretrained(_CLIP_MODEL_NAME)
+        _clip_model.eval()
+        _clip_processor = CLIPProcessor.from_pretrained(_CLIP_MODEL_NAME)
+        logger.info("CLIP model loaded.")
+    return _clip_model, _clip_processor
 
 
 def _render_html(html: str, width: int = 640, height: int = 480) -> Optional[Image.Image]:
@@ -32,19 +51,26 @@ def _render_html(html: str, width: int = 640, height: int = 480) -> Optional[Ima
         return None
 
 
-def _pil_similarity(img_a: Image.Image, img_b: Image.Image, size: tuple = (128, 128)) -> float:
-    """Compute pixel-wise similarity between two images in [0, 1].
+def _clip_similarity(img_a: Image.Image, img_b: Image.Image) -> float:
+    """Compute CLIP image-embedding cosine similarity in [0, 1]."""
+    import torch
+    model, processor = _get_clip()
+    inputs = processor(images=[img_a, img_b], return_tensors="pt")
+    with torch.no_grad():
+        out = model.get_image_features(**inputs)
+    # transformers v5 returns a dataclass; v4 returns a plain tensor
+    features = out.pooler_output if hasattr(out, "pooler_output") else out
+    features = features / features.norm(dim=-1, keepdim=True)
+    score = (features[0] @ features[1]).item()
+    return float(max(0.0, min(1.0, score)))
 
-    Both images are resized to `size` and compared channel-wise.
-    Returns 1.0 for identical images, 0.0 for maximally different.
-    """
+
+def _pil_similarity(img_a: Image.Image, img_b: Image.Image, size: tuple = (128, 128)) -> float:
+    """Fallback: pixel-wise similarity in [0, 1]."""
     a = img_a.resize(size).convert("RGB")
     b = img_b.resize(size).convert("RGB")
-
-    import struct
     pa = list(a.getdata())
     pb = list(b.getdata())
-
     total_diff = sum(
         abs(int(ra) - int(rb)) + abs(int(ga) - int(gb)) + abs(int(ba) - int(bb))
         for (ra, ga, ba), (rb, gb, bb) in zip(pa, pb)
@@ -59,8 +85,9 @@ def clip_visual_reward(
 ) -> list[float]:
     """Score visual similarity between rendered HTML and reference screenshot.
 
-    Renders each completion's HTML with Playwright, then computes pixel-wise
-    similarity against the reference image. Returns 0.5 if rendering fails.
+    Renders each completion's HTML with Playwright, then computes CLIP cosine
+    similarity against the reference image. Falls back to PIL pixel-diff if
+    CLIP is unavailable. Returns 0.5 if rendering fails.
 
     Args:
         completions: List of completion message lists.
@@ -69,6 +96,14 @@ def clip_visual_reward(
     Returns:
         List of float scores in [0.0, 1.0].
     """
+    # Determine similarity function — prefer CLIP, fall back to pixel-diff
+    try:
+        _get_clip()
+        sim_fn = _clip_similarity
+    except Exception as exc:
+        logger.warning("CLIP unavailable, falling back to pixel-diff: %s", exc)
+        sim_fn = _pil_similarity
+
     results = []
     for i, completion in enumerate(completions):
         content = completion[0]["content"]
@@ -81,9 +116,9 @@ def clip_visual_reward(
             continue
 
         try:
-            score = _pil_similarity(rendered, ref_image.convert("RGB"))
+            score = sim_fn(rendered, ref_image.convert("RGB"))
         except Exception as exc:
-            logger.warning("Pixel similarity failed: %s", exc)
+            logger.warning("Similarity scoring failed: %s", exc)
             score = 0.5
 
         results.append(score)
