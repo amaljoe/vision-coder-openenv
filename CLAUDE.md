@@ -100,19 +100,20 @@ On rmgpu006: use `/dev/shm/qwen35/bin/python`.
 
 ## Reward function
 
-Composite of 7 sub-rewards, weighted and normalised to [0, 1]:
+Composite of 8 sub-rewards, weighted and normalised to [0, 1]:
 
 | Reward | Weight | What it measures |
 |---|---|---|
-| `format` | 1.0 | Has `\`\`\`html` fence + `<!DOCTYPE html>` |
-| `validity` | 1.0 | Structural completeness (`html`/`head`/`body`, diverse tags) |
+| `format` | 0.5 | Has ` ```html ` fence + `<!DOCTYPE html>` |
+| `validity` | 0.5 | Structural completeness (`html`/`head`/`body`, diverse tags) |
 | `structural` | 0.5 | Tag-sequence similarity + inline-style property coverage |
 | `text_block` | 3.0 | Hungarian-matched text block IoU + text similarity |
 | `position` | 1.0 | Hungarian-matched centroid distance |
-| `color` | 1.0 | Spatial CIEDE2000 on reference non-white pixels |
-| `clip` | 2.0 | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
+| `color` | 1.5 | Spatial CIEDE2000 on reference non-white pixels |
+| `clip` | 2.5 | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
+| `ssim` | 1.5 | Pixel-level SSIM (skimage, 320×240 RGB) — near-perfect zone sensitivity |
 
-**Weight sum = 9.5.** `text_block` weight is highest (3×) — most discriminative signal; blank/wrong layout → 0.
+**Weight sum = 11.0.** `format`/`validity`/`structural` reduced (saturate early); `color`/`clip`/`ssim` boosted for continuous near-perfect discrimination.
 
 **Content multiplier:** applied to the weighted total. If reference has content but prediction is nearly blank (< 0.5% non-white pixels at 32×32), multiplier scales linearly from 0 to 1. Ensures blank predictions score 0.0 even if individual sub-rewards are nonzero.
 
@@ -120,10 +121,10 @@ Composite of 7 sub-rewards, weighted and normalised to [0, 1]:
 
 **Observed scores on 15 test cases (averages):**
 ```
-perfect    0.947    minor_diff  0.887    bad_colors  0.792
-half_styled 0.534   no_layout   0.474    no_style    0.409    blank 0.000
+perfect    0.977    minor_diff  0.883    bad_colors  0.740
+half_styled 0.524   no_layout   0.469    no_style    0.393    blank 0.000
 ```
-Global Spearman ρ vs canonical targets = 0.956 (15/15 PASS).
+Global Spearman ρ vs canonical targets = 0.955 (15/15 PASS). Gaps improved: perfect→minor_diff +58%, minor_diff→bad_colors +51% vs old weights.
 
 ---
 

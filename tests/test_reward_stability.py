@@ -52,17 +52,19 @@ from vcoder.rewards.validity_rewards import html_validity_reward
 from vcoder.rewards.structural_rewards import structural_similarity_reward
 from vcoder.rewards.color_rewards import color_reward
 from vcoder.rewards.visual_rewards import clip_visual_reward
+from vcoder.rewards.ssim_reward import ssim_reward
 
 WEIGHTS: dict[str, float] = {
-    "format":     1.0,
-    "validity":   1.0,
+    "format":     0.5,
+    "validity":   0.5,
     "structural": 0.5,
     "text_block": 3.0,
     "position":   1.0,
-    "color":      1.0,
-    "clip":       2.0,
+    "color":      1.5,
+    "clip":       2.5,
+    "ssim":       1.5,
 }
-WEIGHT_SUM = sum(WEIGHTS.values())  # 9.5
+WEIGHT_SUM = sum(WEIGHTS.values())  # 11.0
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATA_SRC  = _ROOT / "data"
@@ -86,13 +88,14 @@ BLANK_HTML = (
 # ── Canonical target scores (what a well-calibrated reward should output) ─────
 # These are the *ideal* values. Correlation between actual and these indicates
 # how well the reward function distinguishes quality levels.
+# Updated for SSIM addition and weight rebalancing (format/validity 0.5, ssim 1.5).
 CANONICAL_EXPECTED: dict[str, float] = {
-    "perfect":    0.92,
-    "minor_diff": 0.85,
-    "bad_colors": 0.65,
-    "half_styled": 0.62,
-    "no_layout":  0.52,
-    "no_style":   0.35,
+    "perfect":    0.95,
+    "minor_diff": 0.88,
+    "bad_colors": 0.68,
+    "half_styled": 0.60,
+    "no_layout":  0.50,
+    "no_style":   0.38,
     "blank":      0.00,
 }
 
@@ -397,12 +400,13 @@ def score_variant(
     struct = structural_similarity_reward(completions, solution=[ref_html])[0]
     col    = color_reward(completions, image=[ref_img], pred_image=[pred_img])[0]
     clip_s = clip_visual_reward(completions, image=[ref_img], pred_image=[pred_img])[0]
+    ssim_s = ssim_reward(completions, image=[ref_img], pred_image=[pred_img])[0]
     tb     = _text_block_score(ref_blocks, pred_blocks)
     pos    = _position_score(ref_blocks, pred_blocks)
 
     scores = {
         "format": fmt, "validity": val, "structural": struct,
-        "text_block": tb, "position": pos, "color": col, "clip": clip_s,
+        "text_block": tb, "position": pos, "color": col, "clip": clip_s, "ssim": ssim_s,
     }
     raw_total = sum(WEIGHTS[k] * scores[k] for k in WEIGHTS) / WEIGHT_SUM
     scores["total"] = raw_total * _content_factor(pred_img, ref_img)
@@ -545,7 +549,7 @@ def compute_stats(
 # Reporting
 # ─────────────────────────────────────────────────────────────────────────────
 
-METRIC_COLS = ["format", "validity", "structural", "text_block", "position", "color", "clip", "total"]
+METRIC_COLS = ["format", "validity", "structural", "text_block", "position", "color", "clip", "ssim", "total"]
 
 
 def print_case_table(num: int, results: dict, expected: dict[str, float], stats: dict):

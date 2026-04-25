@@ -1,9 +1,9 @@
 {
-  "perfect": 0.9474,
-  "minor_diff": 0.778,
-  "bad_colors": 0.9128,
-  "half_styled": 0.7561,
-  "no_layout": 0.5651,
-  "no_style": 0.5552,
+  "perfect": 0.9773,
+  "minor_diff": 0.7689,
+  "bad_colors": 0.9176,
+  "half_styled": 0.7297,
+  "no_layout": 0.5567,
+  "no_style": 0.543,
   "blank": 0.0
 }
