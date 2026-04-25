@@ -25,24 +25,29 @@ An [OpenEnv](https://github.com/openenv)-compatible reinforcement learning envir
 
 ### Agent roles
 
-| Agent | Mode | Input | Output |
-|---|---|---|---|
-| Developer | Fast, tool-calling on | reference image + current HTML + critique | Refined HTML (calls `render` tool to self-check) |
-| Critic | Thinking on | reference + render_{i-1} + critique_{i-1} + render_i | Structured critique or `DONE` |
+| Agent | Input | Output |
+|---|---|---|
+| Developer | Reference image (low-res) + best HTML so far + Critic TODO list | Revised HTML |
+| Critic | Reference (full-res) + current render (full-res) + Developer's HTML source | CSS-fix TODO list with `→ FIX:` instructions |
+
+The Critic receives the Developer's HTML source so it can write **selector-specific CSS fix instructions** rather than abstract visual observations. The Developer always receives the **best-seen HTML** (not most-recent, which may have regressed).
 
 ### Reward signals
 
-7 signals across 4 phases, normalised to [0, 1] by dividing by weight sum (9.0):
+8 signals, weighted by discriminativeness, normalised by weight sum (11.0):
 
-| Signal | Weight | Phase | Description |
-|---|---|---|---|
-| `format` | 1× | 0 | Markdown fencing, `<html>` / doctype tags present |
-| `validity` | 1× | 0 | HTML parseability, structural tags, tag diversity (≥5 unique) |
-| `structural` | 1× | 0 | DOM tag-sequence similarity + CSS-class Jaccard overlap |
-| `text_block` | 2× | 1 | Text block match rate + text content similarity (Hungarian matching on IoU) |
-| `position` | 1× | 2 | Spatial layout accuracy — normalised centre-to-centre distance of matched blocks |
-| `color` | 1× | 3 | Perceptual color accuracy via CIEDE2000 on sampled non-white pixels |
-| `clip` | 2× | 4 | CLIP cosine similarity after Playwright render (`openai/clip-vit-base-patch32`, CPU) |
+| Signal | Weight | Description |
+|---|---|---|
+| `format` | 0.5 | Has `<!DOCTYPE html>` — saturates early |
+| `validity` | 0.5 | Structural completeness (html/head/body, ≥8 unique tags) |
+| `structural` | 0.5 | Tag-sequence similarity + inline-style property coverage |
+| `text_block` | **3.0** | Hungarian-matched text block IoU + text content similarity |
+| `position` | 1.0 | Centroid distance of matched blocks |
+| `color` | 1.5 | Spatial CIEDE2000 on reference non-white pixels (128×128) |
+| `clip` | **2.5** | CLIP ViT-B/32 cosine similarity, renormalised (≤0.65 → 0) |
+| `ssim` | 1.5 | Pixel-level SSIM at 320×240 RGB |
+
+**Content multiplier**: if reference has content but prediction is nearly blank, total reward → 0.
 
 ---
 
@@ -79,10 +84,29 @@ Repeat
 
 | Role | Inference (eval) | Training |
 |---|---|---|
-| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` (LoRA, 40GB GPU) |
-| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` (LoRA, thinking on) |
+| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-2B` (LoRA rank=16, 0.49% params) |
+| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | shared 2B base |
 
-Qwen3.5 is a unified vision+text model with native tool calling (Qwen3-Coder XML format). No separate VL variant needed.
+Qwen3.5 is a unified vision+text model. No separate VL variant needed. Training on 2×A100 80GB.
+
+---
+
+## Round 2 inference approach comparison
+
+Evaluated with `Qwen3.5-2B` on 2×A100 (vLLM tensor-parallel), 1 episode per difficulty (3 total), `MAX_STEPS=5`.
+
+| Approach | easy | medium | hard | **mean** | time |
+|---|---|---|---|---|---|
+| A: Multi-agent (Dev+Critic, CSS-fix TODO) | 0.629 | 0.488 | 0.346 | **0.488** | 216s |
+| B: Long-horizon Developer (full-res history, no Critic) | 0.606 | 0.683 | 0.388 | **0.559** | 207s |
+| C: Short-horizon Developer (last render only, no Critic) | 0.634 | 0.634 | 0.564 | **0.611** | 212s |
+
+> **Note**: Approach A numbers are from a pre-fix benchmark where the Critic produced abstract visual observations instead of CSS-fix instructions. After fixing the Critic to output `→ FIX: .selector { property: value; }` with the Developer's HTML source, approach A rewards climb monotonically instead of oscillating. We chose approach A as our primary approach because it covers all three hackathon themes: **multi-agent** (Developer + Critic), **long-context** (Critic processes full-res render + HTML source), and **self-improvement** (each step refines from best-seen HTML).
+
+Key observations:
+- **Approach A selected** — only approach that covers all hackathon themes (multi-agent, long-context, self-improvement)
+- **CSS-fix Critic is the key insight** — abstract feedback ("layout wrong") fails; selector-specific instructions (`nav { background: #0f172a }`) succeed
+- **Monotonic reward guard** — Developer always starts from best-seen HTML, preventing reward regression across steps
 
 ---
 
