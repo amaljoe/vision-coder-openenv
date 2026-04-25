@@ -59,7 +59,7 @@ LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_
 
 LR = 2e-5
 MAX_GRAD_NORM = 1.0
-MAX_NEW_TOKENS = 1024   # capped for training — reduces OOM in gradient forward pass
+MAX_NEW_TOKENS = 2048   # HTML pages need 1500-2500 tokens; 1024 caused truncation + low training rewards
 CRITIC_MAX_TOKENS = 512
 
 DEVELOPER_SYSTEM = DEVELOPER_TRAIN_SYSTEM
