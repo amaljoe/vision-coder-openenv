@@ -5,7 +5,7 @@
 set -euo pipefail
 
 MODEL="${1:-Qwen/Qwen3.5-9B-Instruct}"
-NAME="${2:-chandra}"
+NAME="${2:-qwen35}"
 GPUS="${GPUS:-2}"
 PORT="${PORT:-8000}"
 
