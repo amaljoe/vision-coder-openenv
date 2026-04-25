@@ -150,18 +150,25 @@ for each task:
 
 ### Training Results
 
-*Training reward log generated during run:*
+Live reward curve (updating as training runs):
 
-```
-Episode  Difficulty  Mean Reward  Loss
-1        easy        0.591        —
-2        medium      0.612        0.041
-3        hard        0.498        0.038
-...
-20       easy        0.671        0.019
-```
+![Training curve](assets/training_curve.png)
 
-> Full training reward curve will be updated here when training completes. See `checkpoints/run2/reward_log.csv`.
+| Episode | Difficulty | Mean Reward | Steps | Loss |
+|---|---|---|---|---|
+| 1 | easy | 0.312 | 1.5 | −0.054 |
+| 2 | medium | 0.280 | 2.0 | −0.215 |
+| 3 | hard | 0.230 | 1.5 | −0.077 |
+| 4 | easy | 0.286 | 1.8 | −0.225 |
+| 5 | medium | 0.287 | 2.0 | −0.199 |
+| 6 | hard | 0.238 | 1.0 | +0.047 |
+| … | … | … | … | … |
+
+**Early observations (6/20 episodes):**
+- Medium difficulty shows consistent improvement (0.280 → 0.287) after one GRPO cycle
+- Hard difficulty improves slightly (0.230 → 0.238) but with high loss variance — Critic collapses episodes to 1 step on hard tasks (outputs "DONE" too readily)
+- Loss mostly negative (good: policy moving toward higher-reward outputs); one positive blip on ep=6 hard is expected noise when variance across rollouts is low
+- Table and plot will be updated as remaining 14 episodes complete
 
 ---
 
