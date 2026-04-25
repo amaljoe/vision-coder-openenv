@@ -12,6 +12,8 @@ OpenEnv-compatible HTTP API: `reset()` / `step()` / `render()` / `state()`.
 - `openenv.server` — mapped to `server/` (`app.py`, `environment.py`)
 - `vcoder/` — reward pipeline and data loading
 - `data/` — bundled synthetic samples (5 per difficulty, ~40KB each)
+- `data/tests/` — reward stability test cases (0-14; committed HTML + expected scores; renders gitignored)
+- `tests/test_reward_stability.py` — reward stability test suite (see "Reward stability tests" section)
 
 ## Running on rmgpu006 (cluster)
 
@@ -93,6 +95,71 @@ python inference.py
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
 On rmgpu006: use `/dev/shm/qwen35/bin/python`.
+
+---
+
+## Reward function
+
+Composite of 7 sub-rewards, weighted and normalised to [0, 1]:
+
+| Reward | Weight | What it measures |
+|---|---|---|
+| `format` | 1.0 | Has `\`\`\`html` fence + `<!DOCTYPE html>` |
+| `validity` | 1.0 | Structural completeness (`html`/`head`/`body`, diverse tags) |
+| `structural` | 0.5 | Tag-sequence similarity + inline-style property coverage |
+| `text_block` | 3.0 | Hungarian-matched text block IoU + text similarity |
+| `position` | 1.0 | Hungarian-matched centroid distance |
+| `color` | 1.0 | Spatial CIEDE2000 on reference non-white pixels |
+| `clip` | 2.0 | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
+
+**Weight sum = 9.5.** `text_block` weight is highest (3×) — most discriminative signal; blank/wrong layout → 0.
+
+**Content multiplier:** applied to the weighted total. If reference has content but prediction is nearly blank (< 0.5% non-white pixels at 32×32), multiplier scales linearly from 0 to 1. Ensures blank predictions score 0.0 even if individual sub-rewards are nonzero.
+
+**CLIP renormalisation:** raw cosine ≤ 0.65 → score 0; 1.0 → 1.0. Makes blank pages (raw ~0.45) and unstyled pages (raw ~0.76) meaningfully separated.
+
+**Observed scores on 15 test cases (averages):**
+```
+perfect    0.947    minor_diff  0.887    bad_colors  0.792
+half_styled 0.534   no_layout   0.474    no_style    0.409    blank 0.000
+```
+Global Spearman ρ vs canonical targets = 0.956 (15/15 PASS).
+
+---
+
+## Reward stability tests
+
+Test suite at `tests/test_reward_stability.py`. Test data in `data/tests/<num>/` (0-14, mapping easy/0-4, medium/0-4, hard/0-4).
+
+Each case has:
+- `reference.html`, `variants/*.html` (7 quality levels) — committed
+- `expected_scores.json` — per-case baseline scores — committed
+- `renders/` — PNG renders + block JSONs — **gitignored**, auto-generated
+
+```bash
+# First run on a new machine (needs apptainer for Playwright on rmgpu006)
+apptainer exec ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
+  'export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+   /dev/shm/qwen35/bin/python tests/test_reward_stability.py --render'
+
+# Score only (fast, uses cached renders — works outside apptainer)
+/dev/shm/qwen35/bin/python tests/test_reward_stability.py
+
+# Re-render specific cases
+/dev/shm/qwen35/bin/python tests/test_reward_stability.py --render --cases 0,1,5
+
+# After changing reward functions, lock in new baseline
+/dev/shm/qwen35/bin/python tests/test_reward_stability.py --update-expected
+
+# As pytest
+/dev/shm/qwen35/bin/python -m pytest tests/test_reward_stability.py -v
+```
+
+Two correlation axes reported:
+- **ρ(quality)** vs `CANONICAL_EXPECTED` in code — measures reward calibration quality
+- **ρ(regress)** vs `expected_scores.json` — regression test, catches reward function drift
+
+Pass criteria: quality ρ ≥ 0.80 per case, blank ≤ 0.05, perfect ≥ 0.80.
 
 ---
 
@@ -316,7 +383,28 @@ The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Pla
 
 ---
 
-### 8. Per-step GRPO loses long-horizon signal (Round 2 lesson)
+### 9. `color_reward` false positive on white-background pages
+**What happened:** Original implementation sampled non-white pixels independently from each image, then compared them. A blank white prediction vs a mostly-white reference (e.g. `#f0f2f5` login form) both sampled near-white pixels → CIEDE2000 ≈ 0 → score 0.80–0.96 (false high).
+
+**Fix:** Spatial comparison — resize both images to 128×128, compute per-pixel CIEDE2000, average only over positions where the **reference** is non-white. Blank prediction at those positions gets correct high ΔE. Falls back to full mean when reference is nearly all white (< 2% non-white).
+
+---
+
+### 10. `structural_reward` trivially inflated for inline-style HTML
+**What happened:** All 15 reference HTMLs use inline `style=""` attributes, not CSS classes. The CSS class overlap term always returned 1.0 (neither ref nor pred had classes), making blank pages score 0.50 on structural instead of ~0.25.
+
+**Fix:** When ref has no CSS classes, fall back to inline style **property name** coverage: `len(pred_props ∩ ref_props) / len(ref_props)`. Blank page has 1–2 style props vs 15–25 in ref → score 0.08–0.25. Perfect match (same HTML) → same props → 1.0.
+
+---
+
+### 11. `validity_reward` too generous on blank pages
+**What happened:** `_MIN_DIVERSE_TAGS` was 5. A blank page with 4 tags (`html`, `head`, `title`, `body`) scored 4/5 = 0.80 on diversity, giving total validity ≈ 0.90.
+
+**Fix:** Raised to 8. Blank page now scores 4/8 = 0.50 on diversity → total validity ≈ 0.75.
+
+---
+
+### 12. Per-step GRPO loses long-horizon signal (Round 2 lesson)
 **What happened (design trap):** Applying GRPO independently at each step means Dev_0 only sees `r_0` — the final reward never flows back. Early turns get misguided signal regardless of episode outcome.
 
 **Fix:** Full-episode GRPO — sample K complete trajectories, apply group-relative advantage to all tokens uniformly. Augment with shaped improvement-delta reward (λ=0.2) for early-turn credit assignment. See `train.py`.
