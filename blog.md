@@ -172,14 +172,14 @@ Live reward curve (updating as training runs):
 | 14 | medium | 0.225 | 1.2 | +0.142 |
 | 15 | hard | 0.238 | 1.0 | −0.012 |
 | 16 | easy | **0.496** | 1.2 | −0.044 |
+| 17 | medium | 0.227 | 1.0 | +0.019 |
 | … | … | … | … | … |
 
-**Observations (16/20 episodes, training in progress):**
-- **BREAKTHROUGH at ep=16**: easy reaches **0.496** — a **59% improvement** over ep=1 baseline (0.312). GRPO is working!
-- The model started generating HTML that CLIP recognizes as visually similar to the reference (clip=0.60 in step logs vs 0.00 in earlier episodes)
-- **Easy trend**: 0.312 → 0.286 → 0.349 → 0.283 → 0.308 → **0.496** — exponential improvement emerges at ep=16
-- **Medium/Hard**: still limited by Critic early-termination (fixed for run 2)
-- Table and plot will be updated as remaining 4 episodes complete
+**Observations (17/20 episodes, training in progress):**
+- **BREAKTHROUGH at ep=16**: easy reaches **0.496** — a **59% improvement** over ep=1 baseline (0.312). One rollout achieved 0.82 with clip=0.95 (raw CLIP cosine ~0.98)!
+- **Easy trend**: 0.312 → … → **0.496** — GRPO has learned to generate HTML with high CLIP similarity
+- **Medium/Hard**: still limited by Critic early-termination (mean_steps=1.0, collapses GRPO variance); fixed for run 2
+- Table and plot will be updated as remaining 3 episodes complete
 
 ---
 
