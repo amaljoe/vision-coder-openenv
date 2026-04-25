@@ -7,7 +7,7 @@ Usage:
         --episodes 3
 
 Prints per-difficulty rewards for base (LoRA disabled) and trained (LoRA enabled).
-Environment server must already be running at INFERENCE_SERVER_PORT (default 18081).
+Starts its own environment server on INFERENCE_SERVER_PORT (default 18081).
 """
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ import base64
 import io
 import os
 import statistics
+import threading
+import time
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -117,6 +120,24 @@ def evaluate(model, processor, label: str, use_lora: bool, episodes: int, env_cl
     return results
 
 
+def _start_server() -> None:
+    from openenv.server.app import app
+    import uvicorn
+    config = uvicorn.Config(app, host="127.0.0.1", port=SERVER_PORT, log_level="error")
+    uvicorn.Server(config).run()
+
+
+def _wait_for_server(timeout: float = 120.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f"{SERVER_URL}/health", timeout=2)
+            return
+        except Exception:
+            time.sleep(1.0)
+    raise RuntimeError(f"Server did not start within {timeout}s")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lora-path", required=True, help="Path to trained LoRA directory")
@@ -129,12 +150,14 @@ def main() -> None:
         print(f"ERROR: LoRA path not found: {lora_path}")
         return
 
+    # Start environment server
+    print(f"Starting environment server on port {SERVER_PORT}...")
+    t = threading.Thread(target=_start_server, daemon=True)
+    t.start()
+    _wait_for_server()
+    print("Server ready.")
+
     env_client = httpx.Client(base_url=SERVER_URL, timeout=180.0)
-    try:
-        env_client.get("/health").raise_for_status()
-    except Exception as e:
-        print(f"ERROR: Environment server not reachable at {SERVER_URL}: {e}")
-        return
 
     print(f"Loading model: {args.model}")
     import torch

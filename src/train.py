@@ -163,10 +163,14 @@ def _wait_for_server(timeout: float = 120.0) -> None:
 # Model helpers
 # ---------------------------------------------------------------------------
 
-def setup_model(model_name: str = MODEL_NAME):
-    """Load Qwen3.5 VL with LoRA. Returns (model, processor)."""
+def setup_model(model_name: str = MODEL_NAME, resume_from: Optional[str] = None):
+    """Load Qwen3.5 VL with LoRA. Returns (model, processor).
+
+    If resume_from is set, loads a previously saved LoRA checkpoint instead of
+    initialising fresh LoRA weights — allowing training to continue from run N.
+    """
     from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
-    from peft import LoraConfig, get_peft_model, TaskType
+    from peft import LoraConfig, get_peft_model, PeftModel, TaskType
 
     logger.info("Loading %s …", model_name)
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
@@ -174,9 +178,6 @@ def setup_model(model_name: str = MODEL_NAME):
 
     processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 
-    # Qwen3.5 VL: use Qwen3_5ForConditionalGeneration (handles pixel_values/image_grid_thw).
-    # ignore_mismatched_sizes=True: some Q-proj weights differ between text/VL configs;
-    # they're re-initialised from scratch — LoRA adapts them during training.
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=dtype,
@@ -185,15 +186,20 @@ def setup_model(model_name: str = MODEL_NAME):
         ignore_mismatched_sizes=True,
     )
 
-    lora_cfg = LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=LORA_R,
-        lora_alpha=LORA_ALPHA,
-        lora_dropout=LORA_DROPOUT,
-        target_modules=LORA_TARGET_MODULES,
-        bias="none",
-    )
-    model = get_peft_model(model, lora_cfg)
+    if resume_from:
+        logger.info("Resuming LoRA from checkpoint: %s", resume_from)
+        model = PeftModel.from_pretrained(model, resume_from, is_trainable=True)
+    else:
+        lora_cfg = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=LORA_R,
+            lora_alpha=LORA_ALPHA,
+            lora_dropout=LORA_DROPOUT,
+            target_modules=LORA_TARGET_MODULES,
+            bias="none",
+        )
+        model = get_peft_model(model, lora_cfg)
+
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.print_trainable_parameters()
     return model, processor
@@ -591,6 +597,8 @@ def main() -> None:
                         help="Number of alternating phases")
     parser.add_argument("--model", type=str, default=MODEL_NAME)
     parser.add_argument("--checkpoint-dir", type=str, default=str(CHECKPOINT_DIR))
+    parser.add_argument("--resume-from", type=str, default=None,
+                        help="Path to a previously saved LoRA checkpoint to continue training from")
     args = parser.parse_args()
 
     MODEL_NAME = args.model
@@ -605,7 +613,7 @@ def main() -> None:
     logger.info("Environment server ready at %s", SERVER_URL)
 
     # Load model
-    model, processor = setup_model(MODEL_NAME)
+    model, processor = setup_model(MODEL_NAME, resume_from=args.resume_from)
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=LR,
