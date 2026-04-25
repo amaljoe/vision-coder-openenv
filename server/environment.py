@@ -14,6 +14,7 @@ from vcoder.data.dataset import load_websight_dataset
 from vcoder.rewards.color_rewards import color_reward
 from vcoder.rewards.format_rewards import format_reward
 from vcoder.rewards.position_rewards import position_reward
+from vcoder.rewards.ssim_reward import ssim_reward
 from vcoder.rewards.structural_rewards import structural_similarity_reward
 from vcoder.rewards.text_block_rewards import text_block_reward
 from vcoder.rewards.validity_rewards import html_validity_reward
@@ -23,15 +24,16 @@ from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
 MAX_STEPS = 5  # max developer turns per episode
 
 REWARD_WEIGHTS = {
-    "format":     1.0,
-    "validity":   1.0,
-    "structural": 0.5,   # reduced: inflated by inline-style refs with no CSS classes
-    "text_block": 3.0,   # increased: most discriminative — blank/wrong layout → 0
-    "position":   1.0,
-    "color":      1.0,
-    "clip":       2.0,
+    "format":     0.5,   # was 1.0 — saturates to 1.0 after early training; reduce weight
+    "validity":   0.5,   # was 1.0 — saturates quickly; reduce weight
+    "structural": 0.5,   # unchanged — inflated by inline-style refs
+    "text_block": 3.0,   # unchanged — most discriminative, blank/wrong layout → 0
+    "position":   1.0,   # unchanged
+    "color":      1.5,   # was 1.0 — increased for near-perfect sensitivity
+    "clip":       2.5,   # was 2.0 — most continuous signal at top, increase
+    "ssim":       1.5,   # new — pixel-level SSIM, fills variance gap in 0.7-0.97 zone
 }
-_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.5
+_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 11.0
 
 LOW_RES = (320, 240)   # developer self-check render
 FULL_RES = (640, 480)  # critic + reward computation render
@@ -182,6 +184,7 @@ class VisionCoderEnvironment:
 
         col  = color_reward(completions, image=images, pred_image=pred_renders)[0]
         clip = clip_visual_reward(completions, image=images, pred_image=pred_renders)[0]
+        ssim = ssim_reward(completions, image=images, pred_image=pred_renders)[0]
 
         raw_total = (
             REWARD_WEIGHTS["format"]     * fmt
@@ -191,6 +194,7 @@ class VisionCoderEnvironment:
             + REWARD_WEIGHTS["position"]   * pos
             + REWARD_WEIGHTS["color"]      * col
             + REWARD_WEIGHTS["clip"]       * clip
+            + REWARD_WEIGHTS["ssim"]       * ssim
         )
         total = raw_total / _WEIGHT_SUM
 
@@ -214,6 +218,7 @@ class VisionCoderEnvironment:
                     "position": pos,
                     "color": col,
                     "clip": clip,
+                    "ssim": ssim,
                     "total": total,
                 },
             },
