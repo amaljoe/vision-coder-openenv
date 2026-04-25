@@ -244,7 +244,7 @@ def developer_turn(
         user_content.append({
             "type": "text",
             "text": (
-                f"\n\nYour previous HTML:\n```html\n{current_html[:3000]}\n```\n\n"
+                f"\n\nYour previous HTML:\n```html\n{current_html[:5000]}\n```\n\n"
                 f"{todo.format_for_developer()}\n\n"
                 "Output the revised HTML only."
             ),
@@ -322,7 +322,7 @@ def critic_turn(
             "type": "text",
             "text": (
                 f"\nDeveloper's current HTML source (use exact selectors in your FIX instructions):\n"
-                f"```html\n{current_html[:3000]}\n```"
+                f"```html\n{current_html[:5000]}\n```"
             ),
         })
 
