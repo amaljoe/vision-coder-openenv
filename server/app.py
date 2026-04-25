@@ -1,14 +1,12 @@
 """FastAPI server exposing the VisionCoderEnvironment via the OpenEnv HTTP API.
 
 Endpoints:
-  POST /reset       → Observation  (start new episode; ?difficulty=easy|medium|hard|mixed)
-  POST /step        → Observation  (submit HTML action)
-  GET  /state       → State        (current episode metadata)
-  DELETE /close     → 204          (signal end of session)
-  GET  /health      → 200          (liveness probe for HF Spaces)
-
-Run with:
-  uvicorn openenv.server.app:app --host 0.0.0.0 --port 7860
+  POST /reset       → Observation      (start new episode; ?difficulty=easy|medium|hard|mixed)
+  POST /step        → Observation      (submit HTML action; session_id in body)
+  POST /render      → RenderResponse   (render HTML to image, no reward)
+  GET  /state       → State            (last session metadata)
+  DELETE /close     → 204              (signal end of session)
+  GET  /health      → 200              (liveness probe)
 """
 from __future__ import annotations
 
@@ -17,7 +15,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from openenv.models import Action, Observation, State
+from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
 from openenv.server.environment import VisionCoderEnvironment
 
 logging.basicConfig(level=logging.INFO)
@@ -25,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="VisionCoder OpenEnv",
-    description="Screenshot-to-HTML reinforcement learning environment (OpenEnv-compatible)",
-    version="0.1.0",
+    description="Screenshot-to-HTML RL environment — multi-step, multi-agent (OpenEnv-compatible)",
+    version="2.0.0",
 )
 
 _env = VisionCoderEnvironment()
@@ -34,7 +32,6 @@ _env = VisionCoderEnvironment()
 
 @app.get("/health")
 def health():
-    """Liveness probe — returns 200 OK."""
     return {"status": "ok"}
 
 
@@ -45,14 +42,14 @@ def reset(
         description="Task difficulty: easy | medium | hard | mixed",
     )
 ) -> Observation:
-    """Start a new episode. Returns an Observation containing the target screenshot."""
+    """Start a new episode. Returns session_id and the reference screenshot."""
     if difficulty not in ("easy", "medium", "hard", "mixed"):
         raise HTTPException(status_code=422, detail=f"Invalid difficulty: {difficulty!r}")
     try:
         obs = _env.reset(difficulty=difficulty)
         logger.info(
-            "Episode %s started — difficulty=%s sample=%d",
-            obs.metadata.get("episode_id"),
+            "Session %s started — difficulty=%s sample=%d",
+            obs.session_id,
             difficulty,
             obs.metadata.get("sample_index", 0),
         )
@@ -64,19 +61,21 @@ def reset(
 
 @app.post("/step", response_model=Observation)
 def step(action: Action) -> Observation:
-    """Submit HTML code. Returns an Observation with reward in [0.0, 1.0] and done=True."""
+    """Submit HTML. Returns reward, render_low, render_full, and done flag."""
     try:
         obs = _env.step(action)
         rewards = obs.metadata.get("rewards", {})
         logger.info(
-            "Episode %s step %d — total=%.4f (fmt=%.2f val=%.2f struct=%.2f clip=%.2f)",
-            obs.metadata.get("episode_id"),
+            "Session %s step %d/%d — total=%.4f (fmt=%.2f val=%.2f struct=%.2f clip=%.2f) done=%s",
+            obs.session_id,
             obs.metadata.get("step_count", 1),
+            obs.metadata.get("max_steps", 5),
             rewards.get("total", 0.0),
             rewards.get("format", 0.0),
             rewards.get("validity", 0.0),
             rewards.get("structural", 0.0),
             rewards.get("clip", 0.0),
+            obs.done,
         )
         return obs
     except RuntimeError as exc:
@@ -86,9 +85,19 @@ def step(action: Action) -> Observation:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/render", response_model=RenderResponse)
+def render(request: RenderRequest) -> RenderResponse:
+    """Render HTML to images without scoring. Used by the Developer agent's tool call."""
+    try:
+        return _env.render(request)
+    except Exception as exc:
+        logger.exception("render() failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/state", response_model=State)
 def state() -> State:
-    """Return current episode metadata."""
+    """Return metadata for the most recently created session."""
     return _env.state
 
 
@@ -99,21 +108,10 @@ def close() -> None:
 
 
 def main() -> None:
-    """Entry point for the `server` console script."""
     import os
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run("openenv.server.app:app", host="0.0.0.0", port=port)
-
-
-if __name__ == "__main__":
-    main()
-
-
-def main():
-    import os
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 7860)))
 
 
 if __name__ == "__main__":

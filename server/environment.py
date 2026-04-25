@@ -1,20 +1,15 @@
-"""VisionCoder OpenEnv Environment implementation.
-
-Wraps the VisionCoder reward pipeline into the standard OpenEnv interface:
-  - reset() → Observation  (loads next WebSight screenshot)
-  - step(action) → Observation  (scores submitted HTML)
-  - state → State  (current episode metadata)
-"""
+"""VisionCoder OpenEnv Environment — multi-step, session-aware."""
 from __future__ import annotations
 
 import base64
 import io
 import uuid
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 from PIL import Image
 
-from openenv.models import Action, Observation, State
+from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
 from vcoder.data.dataset import load_websight_dataset
 from vcoder.rewards.color_rewards import color_reward
 from vcoder.rewards.format_rewards import format_reward
@@ -25,24 +20,21 @@ from vcoder.rewards.validity_rewards import html_validity_reward
 from vcoder.rewards import extract_html
 from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
 
-PROMPT = (
-    "You are a UI-to-code assistant. Given a screenshot of a website, generate the "
-    "complete HTML code with inline CSS that reproduces the visual layout. "
-    "Output only the raw HTML — no markdown fencing."
-)
+MAX_STEPS = 5  # max developer turns per episode
 
-# Reward signal weights — must sum to _WEIGHT_SUM below.
-# After all 4 phases the total denominator rises from 6.0 → 9.0.
 REWARD_WEIGHTS = {
-    "format": 1.0,       # markdown fencing + html/doctype tags
-    "validity": 1.0,     # parseability + structure + tag diversity
-    "structural": 1.0,   # DOM tag-sequence + CSS-class overlap
-    "text_block": 2.0,   # Phase 1: text block match + text similarity
-    "position": 1.0,     # Phase 2: spatial layout accuracy
-    "color": 1.0,        # Phase 3: perceptual color accuracy (CIEDE2000)
-    "clip": 2.0,         # Phase 4: CLIP / PIL pixel visual similarity
+    "format": 1.0,
+    "validity": 1.0,
+    "structural": 1.0,
+    "text_block": 2.0,
+    "position": 1.0,
+    "color": 1.0,
+    "clip": 2.0,
 }
-_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.0 — normalises composite to [0, 1]
+_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.0
+
+LOW_RES = (320, 240)   # developer self-check render
+FULL_RES = (640, 480)  # critic + reward computation render
 
 DIFFICULTY_PROMPTS = {
     "easy": (
@@ -58,149 +50,161 @@ DIFFICULTY_PROMPTS = {
         "tables, and rich layout, generate complete HTML with inline CSS. Output only raw HTML."
     ),
 }
+_DEFAULT_PROMPT = DIFFICULTY_PROMPTS["medium"]
 
 
-def _image_to_b64(image: Image.Image) -> str:
+def _image_to_b64(image: Image.Image, size: Optional[tuple] = None) -> str:
+    if size is not None:
+        image = image.resize(size, Image.LANCZOS)
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
 
+@dataclass
+class _Session:
+    episode_id: str
+    session_id: str
+    difficulty: str
+    sample: dict
+    ref_image: Image.Image
+    step_count: int = 0
+    sample_index: int = 0
+
+
 class VisionCoderEnvironment:
-    """OpenEnv-compatible environment for screenshot-to-HTML generation.
+    """Multi-step, session-aware OpenEnv environment for screenshot-to-HTML generation.
 
-    Each episode presents an agent with a UI screenshot. The agent submits
-    HTML code via step(), which is rendered and scored against the reference
-    using seven reward signals across four phases:
+    Each reset() creates an independent session identified by session_id.
+    step() accepts session_id in the Action and allows up to MAX_STEPS turns
+    per episode before returning done=True.
 
-      Phase 0 (existing): format, validity, structural, clip (PIL)
-      Phase 1: text_block — text block position + content matching
-      Phase 2: position   — spatial layout accuracy of matched blocks
-      Phase 3: color      — perceptual color accuracy (CIEDE2000)
-      Phase 4: clip       — true CLIP similarity (when ENABLE_CLIP=1)
-
-    The composite reward is normalised to [0.0, 1.0].
+    step() returns render_low and render_full (base64 PNG) alongside the reward
+    so the Developer agent can inspect its render without an extra /render call.
     """
 
     def __init__(self, max_samples: int = 2000):
         self._max_samples = max_samples
-        self._datasets: dict[str, list] = {}
-        self._dataset_indices: dict[str, int] = {"easy": 0, "medium": 0, "hard": 0, "mixed": 0}
-        self._current_sample: Optional[dict] = None
-        self._state = State()
-        self._current_difficulty: str = "mixed"
+        self._datasets: Dict[str, list] = {}
+        self._dataset_indices: Dict[str, int] = {"easy": 0, "medium": 0, "hard": 0, "mixed": 0}
+        self._sessions: Dict[str, _Session] = {}
+        self._last_session_id: Optional[str] = None  # backward-compat fallback
+
+    # ------------------------------------------------------------------
+    # Dataset helpers
+    # ------------------------------------------------------------------
 
     def _get_dataset(self, difficulty: str) -> list:
         key = difficulty if difficulty in ("easy", "medium", "hard") else "mixed"
         if key not in self._datasets:
-            diff_arg = key if key != "mixed" else None
             self._datasets[key] = load_websight_dataset(
                 max_samples=self._max_samples,
-                difficulty=diff_arg,
+                difficulty=key if key != "mixed" else None,
             )
         return self._datasets[key]
 
+    # ------------------------------------------------------------------
+    # OpenEnv interface
+    # ------------------------------------------------------------------
+
     def reset(self, difficulty: str = "mixed") -> Observation:
-        """Start a new episode by sampling the next WebSight screenshot.
-
-        Args:
-            difficulty: Task difficulty — "easy", "medium", "hard", or "mixed".
-
-        Returns:
-            Observation with the target screenshot encoded as base64 PNG.
-        """
-        self._current_difficulty = difficulty
+        """Start a new episode. Returns session_id and the reference screenshot."""
         dataset = self._get_dataset(difficulty)
         key = difficulty if difficulty in ("easy", "medium", "hard") else "mixed"
 
         idx = self._dataset_indices[key]
-        self._current_sample = dataset[idx]
+        sample = dataset[idx]
         self._dataset_indices[key] = (idx + 1) % len(dataset)
 
-        self._state = State(
-            episode_id=str(uuid.uuid4()),
-            step_count=0,
+        session_id = str(uuid.uuid4())
+        episode_id = str(uuid.uuid4())
+
+        ref_image = _render_html(sample["solution"])
+        if ref_image is None:
+            ref_image = Image.new("RGB", FULL_RES, color=(255, 255, 255))
+
+        session = _Session(
+            episode_id=episode_id,
+            session_id=session_id,
+            difficulty=difficulty,
+            sample={**sample, "image": ref_image},
+            ref_image=ref_image,
             sample_index=idx,
         )
-
-        # Render reference HTML live to get the screenshot
-        ref_image = _render_html(self._current_sample["solution"])
-        if ref_image is None:
-            # Fallback: blank white image
-            ref_image = Image.new("RGB", (640, 480), color=(255, 255, 255))
-        self._current_sample["image"] = ref_image
-
-        prompt = DIFFICULTY_PROMPTS.get(difficulty, PROMPT)
+        self._sessions[session_id] = session
+        self._last_session_id = session_id
 
         return Observation(
             done=False,
-            reward=None,
+            session_id=session_id,
             screenshot_b64=_image_to_b64(ref_image),
-            prompt=prompt,
+            prompt=DIFFICULTY_PROMPTS.get(difficulty, _DEFAULT_PROMPT),
             metadata={
-                "episode_id": self._state.episode_id,
-                "sample_index": self._state.sample_index,
+                "episode_id": episode_id,
+                "session_id": session_id,
+                "sample_index": idx,
                 "difficulty": difficulty,
+                "max_steps": MAX_STEPS,
             },
         )
 
     def step(self, action: Action) -> Observation:
-        """Score the agent's submitted HTML against the reference screenshot.
+        """Score submitted HTML and return reward + rendered images.
 
-        Computes seven reward signals and returns their weighted sum normalised
-        to [0.0, 1.0]:
-          - format      (weight 1): markdown fencing + html/doctype tags
-          - validity    (weight 1): parseability + structure + tag diversity
-          - structural  (weight 1): DOM tag-sequence + CSS-class overlap
-          - text_block  (weight 2): text block match + text similarity [Phase 1]
-          - position    (weight 1): spatial layout accuracy [Phase 2]
-          - color       (weight 1): perceptual color via CIEDE2000 [Phase 3]
-          - clip        (weight 2): CLIP/PIL visual similarity [Phase 4]
+        Uses action.session_id to look up the episode. Falls back to the most
+        recently created session when session_id is omitted (single-client compat).
 
-        Returns:
-            Observation with done=True and reward in [0.0, 1.0].
+        Returns done=True when step_count reaches MAX_STEPS.
         """
-        if self._current_sample is None:
-            raise RuntimeError("Call reset() before step().")
+        session_id = action.session_id or self._last_session_id
+        if session_id is None or session_id not in self._sessions:
+            raise RuntimeError("No active session. Call reset() first.")
 
-        self._state.step_count += 1
+        session = self._sessions[session_id]
+        session.step_count += 1
+        done = session.step_count >= MAX_STEPS
 
-        # Pass raw action directly — extract_html handles fences/think blocks
         completions = [[{"content": action.html}]]
-        images = [self._current_sample["image"]]
-        solutions = [self._current_sample["solution"]]
+        images = [session.ref_image]
+        solutions = [session.sample["solution"]]
 
-        fmt = format_reward(completions)[0]
-        val = html_validity_reward(completions)[0]
+        fmt   = format_reward(completions)[0]
+        val   = html_validity_reward(completions)[0]
         struct = structural_similarity_reward(completions, solution=solutions)[0]
-        tb = text_block_reward(completions, solution=solutions)[0]
-        pos = position_reward(completions, solution=solutions)[0]
-        # Render pred HTML once — shared by color and clip rewards (avoids duplicate Playwright launches)
+        tb    = text_block_reward(completions, solution=solutions)[0]
+        pos   = position_reward(completions, solution=solutions)[0]
+
         pred_render = _render_html(extract_html(action.html))
+        if pred_render is None:
+            pred_render = Image.new("RGB", FULL_RES, color=(255, 255, 255))
         pred_renders = [pred_render]
 
-        col = color_reward(completions, image=images, pred_image=pred_renders)[0]
+        col  = color_reward(completions, image=images, pred_image=pred_renders)[0]
         clip = clip_visual_reward(completions, image=images, pred_image=pred_renders)[0]
 
         raw_total = (
-            REWARD_WEIGHTS["format"] * fmt
-            + REWARD_WEIGHTS["validity"] * val
+            REWARD_WEIGHTS["format"]     * fmt
+            + REWARD_WEIGHTS["validity"]   * val
             + REWARD_WEIGHTS["structural"] * struct
             + REWARD_WEIGHTS["text_block"] * tb
-            + REWARD_WEIGHTS["position"] * pos
-            + REWARD_WEIGHTS["color"] * col
-            + REWARD_WEIGHTS["clip"] * clip
+            + REWARD_WEIGHTS["position"]   * pos
+            + REWARD_WEIGHTS["color"]      * col
+            + REWARD_WEIGHTS["clip"]       * clip
         )
-        # Normalise to [0, 1]
         total = raw_total / _WEIGHT_SUM
 
         return Observation(
-            done=True,
+            done=done,
             reward=total,
+            session_id=session_id,
+            render_low=_image_to_b64(pred_render, size=LOW_RES),
+            render_full=_image_to_b64(pred_render),
             metadata={
-                "episode_id": self._state.episode_id,
-                "step_count": self._state.step_count,
-                "difficulty": self._current_difficulty,
+                "episode_id": session.episode_id,
+                "session_id": session_id,
+                "step_count": session.step_count,
+                "difficulty": session.difficulty,
+                "max_steps": MAX_STEPS,
                 "rewards": {
                     "format": fmt,
                     "validity": val,
@@ -214,6 +218,30 @@ class VisionCoderEnvironment:
             },
         )
 
+    def render(self, request: RenderRequest) -> RenderResponse:
+        """Render HTML to images without computing rewards.
+
+        Used by the Developer agent's render() tool call to self-check
+        mid-generation without consuming an episode step.
+        """
+        image = _render_html(extract_html(request.html))
+        if image is None:
+            image = Image.new("RGB", FULL_RES, color=(255, 255, 255))
+        return RenderResponse(
+            image_b64=_image_to_b64(image),
+            image_low_b64=_image_to_b64(image, size=LOW_RES),
+        )
+
     @property
     def state(self) -> State:
-        return self._state
+        """Return metadata for the most recently created session."""
+        if self._last_session_id and self._last_session_id in self._sessions:
+            s = self._sessions[self._last_session_id]
+            return State(
+                episode_id=s.episode_id,
+                session_id=s.session_id,
+                step_count=s.step_count,
+                sample_index=s.sample_index,
+                max_steps=MAX_STEPS,
+            )
+        return State()

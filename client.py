@@ -1,19 +1,4 @@
-"""HTTPEnvClient for the VisionCoder OpenEnv environment.
-
-Provides a synchronous client for interacting with the VisionCoder
-FastAPI server via the standard OpenEnv HTTP interface.
-
-Usage:
-    from openenv.client import VisionCoderClient
-
-    with VisionCoderClient("http://localhost:8080") as client:
-        obs = client.reset()
-        # decode screenshot, run model inference ...
-        action = Action(html="<html>...</html>")
-        result = client.step(action)
-        print(f"Reward: {result.reward}")
-        print(f"Breakdown: {result.metadata['rewards']}")
-"""
+"""HTTPEnvClient for the VisionCoder OpenEnv environment."""
 from __future__ import annotations
 
 import base64
@@ -23,21 +8,13 @@ from typing import Optional
 import httpx
 from PIL import Image
 
-from openenv.models import Action, Observation, State
+from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
 
 
 class VisionCoderClient:
-    """Synchronous HTTP client for the VisionCoder OpenEnv server.
-
-    Implements the standard OpenEnv interface: reset(), step(), state(), close().
-    """
+    """Synchronous HTTP client for the VisionCoder OpenEnv server."""
 
     def __init__(self, base_url: str = "http://localhost:8080", timeout: float = 120.0):
-        """
-        Args:
-            base_url: URL of the running VisionCoder OpenEnv server.
-            timeout:  Request timeout in seconds (rendering HTML can be slow).
-        """
         self._base_url = base_url.rstrip("/")
         self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
 
@@ -45,17 +22,23 @@ class VisionCoderClient:
     # Core OpenEnv interface
     # ------------------------------------------------------------------
 
-    def reset(self) -> Observation:
-        """Start a new episode. Returns an Observation with the target screenshot."""
-        resp = self._client.post("/reset")
+    def reset(self, difficulty: str = "mixed") -> Observation:
+        """Start a new episode. Returns Observation with session_id and reference screenshot."""
+        resp = self._client.post("/reset", params={"difficulty": difficulty})
         resp.raise_for_status()
         return Observation(**resp.json())
 
     def step(self, action: Action) -> Observation:
-        """Submit HTML code for evaluation. Returns reward and done=True."""
+        """Submit HTML. Returns reward, render_low, render_full, done."""
         resp = self._client.post("/step", json=action.model_dump())
         resp.raise_for_status()
         return Observation(**resp.json())
+
+    def render(self, html: str) -> RenderResponse:
+        """Render HTML to images without scoring (Developer tool call)."""
+        resp = self._client.post("/render", json=RenderRequest(html=html).model_dump())
+        resp.raise_for_status()
+        return RenderResponse(**resp.json())
 
     def state(self) -> State:
         """Return current episode metadata from the server."""
@@ -74,12 +57,15 @@ class VisionCoderClient:
     # Convenience helpers
     # ------------------------------------------------------------------
 
-    def decode_screenshot(self, obs: Observation) -> Optional[Image.Image]:
-        """Decode the base64 PNG screenshot from an Observation into a PIL Image."""
-        if obs.screenshot_b64 is None:
+    def decode_image(self, b64: Optional[str]) -> Optional[Image.Image]:
+        """Decode a base64 PNG string into a PIL Image."""
+        if b64 is None:
             return None
-        raw = base64.b64decode(obs.screenshot_b64)
-        return Image.open(io.BytesIO(raw)).convert("RGB")
+        return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+
+    def decode_screenshot(self, obs: Observation) -> Optional[Image.Image]:
+        """Decode the reference screenshot from a reset() Observation."""
+        return self.decode_image(obs.screenshot_b64)
 
     # ------------------------------------------------------------------
     # Context manager support

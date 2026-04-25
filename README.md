@@ -10,17 +10,29 @@ pinned: false
 
 # VisionCoder OpenEnv
 
-An [OpenEnv](https://github.com/openenv)-compatible reinforcement learning environment for screenshot-to-HTML generation. An agent receives a UI screenshot and is rewarded based on how accurately its generated HTML reproduces the original layout.
+An [OpenEnv](https://github.com/openenv)-compatible reinforcement learning environment for screenshot-to-HTML generation. An agent receives a UI screenshot and must generate HTML that faithfully reproduces the original layout, refined iteratively over multiple steps with a critic agent.
 
 ## Overview
 
-Each episode:
-1. `reset()` — returns a target UI screenshot (base64 PNG) and a task prompt
-2. `step(action)` — submits HTML code, receives a composite reward score
+**Round 2** introduces multi-step episodes and a two-agent loop:
+
+1. `reset()` — returns a target UI screenshot, task prompt, and `session_id`
+2. Inner loop (≤ N steps per episode):
+   - **Developer** generates/refines HTML, calling `render()` to self-check mid-generation
+   - `step(html, session_id)` — scores the HTML and returns `reward`, `render_low`, `render_full`, `done`
+   - **Critic** compares reference vs rendered output and returns structured feedback or `DONE`
+3. Episode ends when Critic signals `DONE` or max steps are reached
+
+### Agent roles
+
+| Agent | Mode | Input | Output |
+|---|---|---|---|
+| Developer | Fast, tool-calling on | reference image + current HTML + critique | Refined HTML (calls `render` tool to self-check) |
+| Critic | Thinking on | reference + render_{i-1} + critique_{i-1} + render_i | Structured critique or `DONE` |
 
 ### Reward signals
 
-7 signals across 4 phases, normalised to [0, 1] by dividing by the weight sum (9.0):
+7 signals across 4 phases, normalised to [0, 1] by dividing by weight sum (9.0):
 
 | Signal | Weight | Phase | Description |
 |---|---|---|---|
@@ -32,9 +44,51 @@ Each episode:
 | `color` | 1× | 3 | Perceptual color accuracy via CIEDE2000 on sampled non-white pixels |
 | `clip` | 2× | 4 | CLIP cosine similarity after Playwright render (`openai/clip-vit-base-patch32`, CPU) |
 
-## Baseline results
+---
 
-Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty (15 total). Best episode per difficulty selected requiring easy > medium > hard ordering. Reward pipeline weight sum = 9.0. Renders shown in the [Visual comparison](#visual-comparison) section below.
+## RL training
+
+Both agents are trained with **full-episode GRPO** — the entire Developer + Critic trajectory for an episode is treated as one sequence. K rollouts are sampled per task, scored, and the group-relative advantage is applied to all tokens.
+
+### Reward design
+
+```
+R_total(t) = R_terminal + λ · Σ(r_s - r_{s-1}  for s = t..n)
+```
+
+- `R_terminal` — environment score at the final step (main signal, propagates to all turns)
+- `r_s - r_{s-1}` — per-step improvement delta (shaped signal, helps credit assignment at early turns)
+- `λ = 0.2` — keeps shaped signal subordinate to terminal; prevents over-optimising intermediate steps
+
+### Credit assignment
+
+| Turn | Gets terminal? | Gets shaped? |
+|---|---|---|
+| Developer turn i | Yes (all turns) | Yes — improvement delta from step i onward |
+| Critic turn i | Yes (all turns) | Yes — improvement delta from step i+1 onward |
+
+### Training schedule
+
+```
+Phase A (N episodes): Train Developer (LoRA), freeze Critic
+Phase B (N episodes): Train Critic  (LoRA), freeze Developer
+Repeat
+```
+
+### Models
+
+| Role | Inference (eval) | Training |
+|---|---|---|
+| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` (LoRA, 40GB GPU) |
+| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` (LoRA, thinking on) |
+
+Qwen3.5 is a unified vision+text model with native tool calling (Qwen3-Coder XML format). No separate VL variant needed.
+
+---
+
+## Round 1 baseline (single-step, single-agent)
+
+Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty (15 total).
 
 ### Per-signal breakdown — `qwen3.5:4b`
 
@@ -44,18 +98,17 @@ Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty 
 | medium | 0.471 | 1.000 | 1.000 | 0.490 | 0.150 | 0.520 | 0.000 | 0.460 |
 | hard   | 0.432 | 1.000 | 1.000 | 0.430 | 0.115 | 0.267 | 0.000 | 0.480 |
 
-**Mean reward across 3 difficulties: 0.567**
+**Mean reward: 0.567**
 
-**Key observations:**
-- `format` = 1.0 across all difficulties — qwen3.5 wraps output in markdown fences, which are stripped before scoring (rewarded for the fences present, not penalised)
-- `validity` = 1.0 across all difficulties — generated HTML is always structurally well-formed
-- Easy task (blog article): near-perfect `position` (0.97) and strong `text_block` (0.75) — model faithfully reproduces text-dominant layouts
-- Medium task (sign-in form): `color` = 0.0 despite visually similar layout — button hue and background differ enough to collapse perceptual color score
-- Hard task (company hero page): model hallucinates an entirely different UI (kanban board) — `clip` (0.48) and `text_block` (0.115) collapse together
+Key observations:
+- `format` and `validity` = 1.0 across all difficulties — model reliably produces well-formed HTML
+- Easy (blog article): near-perfect `position` (0.97) — model handles text-dominant layouts well
+- Medium (sign-in form): `color` collapses to 0.0 — subtle hue differences exceed perceptual threshold
+- Hard (hero page): model hallucinates a different UI entirely — `clip` and `text_block` collapse together
 
 ---
 
-## Visual comparison
+## Visual comparison (Round 1)
 
 ### Easy — Blog article
 
@@ -74,7 +127,7 @@ Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty 
 | clip | 2× | 0.830 |
 | **total** | **9** | **0.797** |
 
-**Analysis:** The reference is a text-heavy blog article with a title, author avatar, blockquote, and body paragraphs. qwen faithfully reproduces the layout — `position` (0.97) and `text_block` (0.75) confirm near-perfect spatial and textual accuracy. `color` (0.40) is lower because the author avatar shade and blockquote border color differ slightly from the reference.
+**Analysis:** The reference is a text-heavy blog article with a title, author avatar, blockquote, and body paragraphs. qwen faithfully reproduces the layout — `position` (0.97) and `text_block` (0.75) confirm near-perfect spatial and textual accuracy. `color` (0.40) is lower because the author avatar shade and blockquote border color differ slightly.
 
 ---
 
@@ -95,7 +148,7 @@ Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty 
 | clip | 2× | 0.460 |
 | **total** | **9** | **0.471** |
 
-**Analysis:** qwen reproduces the sign-in card with email/password fields and a purple CTA button — the structure is correct. `color` collapses to 0.0 because qwen uses a more saturated purple button while the reference has a softer indigo, and the background grey tones differ enough to fail the perceptual color threshold. `text_block` (0.15) is penalised because field labels and button text shift slightly in size and position.
+**Analysis:** qwen reproduces the sign-in card with email/password fields and a purple CTA button — structure is correct. `color` collapses to 0.0 because qwen uses a more saturated purple while the reference has a softer indigo, and background grey tones differ enough to fail the perceptual color threshold.
 
 ---
 
@@ -116,7 +169,7 @@ Evaluated locally with `qwen3.5:4b` via Ollama across 5 episodes per difficulty 
 | clip | 2× | 0.480 |
 | **total** | **9** | **0.432** |
 
-**Analysis:** The reference is a dark-themed branded hero — navy background, large "N" avatar circle, company name and tagline, with a light "Our Mission" section below. qwen hallucinates an entirely different UI: a light-themed kanban board (Sprint 24) with task cards, category badges, and avatar initials. This complete domain divergence collapses `text_block` (0.115), `position` (0.267), and `color` (0.0). `clip` (0.48) still partially fires because both pages share rounded cards and avatar elements, but the visual mismatch is stark.
+**Analysis:** The reference is a dark-themed branded hero — navy background, large "N" avatar, company name and tagline. qwen hallucinates a light-themed kanban board (Sprint 24) with task cards and category badges. This complete domain divergence collapses `text_block`, `position`, and `color`. `clip` (0.48) still partially fires because both pages share rounded cards and avatar elements.
 
 ---
 
@@ -130,7 +183,7 @@ pip install -e .
 
 ```bash
 export API_BASE_URL=https://router.huggingface.co/v1
-export MODEL_NAME=Qwen/Qwen2.5-VL-72B-Instruct
+export MODEL_NAME=Qwen/Qwen3.5-35B-A3B
 export HF_TOKEN=hf_...
 python inference.py
 ```
@@ -141,7 +194,7 @@ Required environment variables:
 |---|---|
 | `HF_TOKEN` | Hugging Face token (used as API key) |
 | `API_BASE_URL` | OpenAI-compatible LLM endpoint |
-| `MODEL_NAME` | Vision-capable model ID |
+| `MODEL_NAME` | Vision-capable model ID (Developer and Critic share this endpoint) |
 
 Inference stdout format:
 
@@ -149,6 +202,14 @@ Inference stdout format:
 [START] task=<difficulty> env=vision-coder model=<model>
 [STEP]  step=<n> action=<html_preview> reward=<0.00> done=<true|false> error=<msg|null>
 [END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,...>
+```
+
+## Running RL training
+
+```bash
+export HF_TOKEN=hf_...
+python train.py --model Qwen/Qwen3.5-9B --phase developer --episodes 500
+python train.py --model Qwen/Qwen3.5-9B --phase critic    --episodes 500
 ```
 
 ## Running the server
@@ -175,32 +236,32 @@ from openenv.client import VisionCoderClient
 from openenv.models import Action
 
 with VisionCoderClient("http://localhost:7860") as client:
-    obs = client.reset()
-
-    # Decode the target screenshot
+    obs = client.reset()                          # returns session_id
     image = client.decode_screenshot(obs)
 
-    # Run your model inference here ...
     html = "<html><body><h1>Hello</h1></body></html>"
 
     result = client.step(Action(html=html))
-    print(f"Reward: {result.reward}")
-    print(f"Breakdown: {result.metadata['rewards']}")
+    print(f"Reward:     {result.reward}")
+    print(f"Breakdown:  {result.metadata['rewards']}")
+    print(f"Render low: {result.metadata['render_low'][:40]}...")
 ```
 
 ## API reference
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `reset()` | `POST /reset` | Start a new episode |
-| `step(action)` | `POST /step` | Submit HTML and receive reward |
+| `reset()` | `POST /reset` | Start a new episode, returns `session_id` |
+| `step(action)` | `POST /step` | Submit HTML — returns reward, `render_low`, `render_full`, `done` |
+| `render(html)` | `POST /render` | Render HTML to image only, no reward (used by Developer tool call) |
 | `state()` | `GET /state` | Current episode metadata |
 | `close()` | `DELETE /close` | End the session |
 
 ## Project structure
 
 ```
-├── inference.py           # Baseline inference script (runs 3 episodes)
+├── inference.py           # Multi-agent inference script (Developer + Critic loop)
+├── train.py               # RL training — full-episode GRPO + shaped reward
 ├── openenv.yaml           # OpenEnv spec
 ├── Dockerfile
 ├── openenv/               # OpenEnv SDK package
@@ -208,7 +269,7 @@ with VisionCoderClient("http://localhost:7860") as client:
 │   ├── models.py          # Action, Observation, State (Pydantic)
 │   └── server/
 │       ├── app.py         # FastAPI application
-│       └── environment.py # VisionCoderEnvironment + reward pipeline
+│       └── environment.py # VisionCoderEnvironment + reward pipeline + session state
 ├── vcoder/                # Reward modules
 │   └── rewards/
 │       ├── format_rewards.py

@@ -2,7 +2,10 @@
 
 ## Project
 Screenshot-to-HTML RL environment for the Scaler x Meta PyTorch Hackathon.
-OpenEnv-compatible HTTP API: `reset()` / `step()` / `state()`.
+OpenEnv-compatible HTTP API: `reset()` / `step()` / `render()` / `state()`.
+
+**Round 1** (backup branch `round1`): single-step, single-agent inference.
+**Round 2** (current `main`): multi-step iterative environment + multi-agent (Developer + Critic) + RL training.
 
 ## Package structure
 - `openenv/` — mapped to repo root (`__init__.py`, `client.py`, `models.py`)
@@ -19,25 +22,104 @@ uvicorn openenv.server.app:app --host 0.0.0.0 --port 7860
 ## Running inference
 ```bash
 export API_BASE_URL=https://router.huggingface.co/v1
-export MODEL_NAME=Qwen/Qwen2.5-VL-72B-Instruct
+export MODEL_NAME=Qwen/Qwen3.5-35B-A3B
 export HF_TOKEN=hf_...
 python inference.py
 ```
 
 ## Environment variables
 - `API_BASE_URL` — OpenAI-compatible LLM endpoint (required)
-- `MODEL_NAME` — vision-capable model ID (required)
+- `MODEL_NAME` — vision-capable model ID (required); Developer and Critic share this endpoint
 - `HF_TOKEN` — Hugging Face token / API key for LLM calls (primary auth key)
-
-## Key design decisions
-- Bundled `data/*.json` for instant `reset()` — no runtime dataset download
-- Real CLIP (`openai/clip-vit-base-patch32`, CPU) for visual reward — pre-downloaded in Dockerfile
-- 7 reward signals: format(1×) + validity(1×) + structural(1×) + text_block(2×) + position(1×) + color(1×) + clip(2×), normalised ÷ 9.0
-- Docker image ~3.5GB (python:3.11-slim + torch CPU + CLIP + Playwright Chromium)
-- HF Space: `amaljoe88/vision-coder-openenv` (port 7860)
 
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
+
+---
+
+## Round 2 architecture
+
+### Models
+| Role | Inference (eval) | Training |
+|---|---|---|
+| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA |
+| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA, thinking on |
+
+- Qwen3.5 is unified vision+text — no separate VL variant needed
+- Native tool calling via Qwen3-Coder XML format — reliable at 4-9B scale
+- 35B-A3B is a MoE that activates 3B params at runtime: fast + high quality
+- 9B fits 40GB A100 with LoRA; use 4B for 24GB GPU
+
+### Environment changes (server/)
+- `reset()` returns task + `session_id`; session state lives in-memory per episode
+- `step(html, session_id)` → `{reward, render_low (base64), render_full (base64), done}`
+- `render(html)` → `{image (base64)}` — renders only, no reward (used by Developer tool call)
+- `done=true` when max steps reached
+
+### Multi-agent inference loop (inference.py)
+```
+for each task (episode):
+    state = env.reset()                        # → session_id, reference_image
+    code, critique, render_prev = "", None, None
+
+    for step i in range(MAX_STEPS):
+        # Developer: fast mode, render() tool available
+        # Input: reference_image (low-res) + code + critique
+        # Calls render(new_html) mid-generation to self-check
+        code = developer.generate(ref_image, code, critique)
+
+        result = env.step(code, session_id)    # → reward, render_low, render_full, done
+        log_step(i, code, result.reward, result.done)
+        if result.done: break
+
+        # Critic: thinking mode on
+        # Input: reference_image (full-res) + render_{i-1} + critique_{i-1} + render_i
+        critique = critic.review(ref_image, render_prev, critique, result.render_full)
+        if "DONE" in critique: break
+
+        render_prev = result.render_full
+
+log_end(...)
+```
+
+### RL training (train.py)
+
+**Reward function (per turn t in trajectory):**
+```
+R_total(t) = R_terminal + λ · Σ(r_s - r_{s-1}  for s = t..n)
+
+R_terminal = environment score at final step n    ← main signal
+r_s - r_{s-1} = per-step improvement delta        ← shaped signal
+λ = 0.2                                           ← keeps shaped signal subordinate
+```
+
+- `R_terminal` propagates backward to all turns (solves long-horizon credit assignment)
+- Shaped reward gives additional gradient signal at early turns without dominating
+- Both Developer and Critic tokens receive this advantage; Critic's shaped reward
+  is the improvement delta from step i+1 onward (first step after its critique)
+
+**Training algorithm: full-episode GRPO**
+```
+for each task:
+    sample K full trajectories τ_1..τ_K  (different temperatures/seeds)
+    score each trajectory: R_terminal_k + shaped deltas
+    compute group-relative advantage: A_t = (G_t - mean_k) / std_k
+    update: ∇ log π(a_t | s_t) · A_t  for all tokens in trajectory
+```
+
+**Alternating training schedule:**
+```
+Phase A (N episodes): Train Developer (LoRA), freeze Critic
+Phase B (N episodes): Train Critic   (LoRA, thinking on), freeze Developer
+Repeat until convergence
+```
+
+### inference.py output format (unchanged from Round 1)
+```
+[START] task=<difficulty> env=vision-coder model=<model>
+[STEP]  step=<n> action=<html_preview> reward=<0.00> done=<true|false> error=<msg|null>
+[END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,...>
+```
 
 ---
 
@@ -88,30 +170,22 @@ Check `validation.agentic_evaluation.status` — target is `"success"` with all 
 
 ---
 
-## How Phase 2 evaluation works
+## How evaluation works
 
 The evaluator does NOT use the HF Space to run inference. The flow is:
 1. **HF Space ping** — pre-submission only: `POST /reset` must return 200
-2. **Phase 2 agentic eval**:
+2. **Agentic eval**:
    - Clones GitHub repo to `/tmp/workspace/`
    - `docker build` from `Dockerfile`
    - Runs `inference.py` inside Docker with `HF_TOKEN`, `API_BASE_URL`, `MODEL_NAME` set
    - Parses `[START]`/`[STEP]`/`[END]` stdout
    - Validates task scores
 
-Phase 2 steps: `docker_build` → `inference` → `parse_output` → `task_validation` → `llm_check`
+Eval pipeline: `docker_build` → `inference` → `parse_output` → `task_validation` → `llm_check`
 
 ---
 
 ## inference.py requirements (critical)
-
-Must match the sample inference script exactly:
-
-```
-[START] task=<difficulty> env=vision-coder model=<model>
-[STEP]  step=<n> action=<html_preview> reward=<0.00> done=<true|false> error=<msg|null>
-[END]   success=<true|false> steps=<n> score=<0.000> rewards=<r1,...>
-```
 
 Rules enforced by evaluator parser:
 - `action=` must be a plain string — **no `!r` repr quoting** (caused one failure)
@@ -170,7 +244,7 @@ features = out.pooler_output if hasattr(out, "pooler_output") else out
 ---
 
 ### 6. Docker build downloads ~1.2GB — fragile on slow networks
-The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Playwright Chromium (~400MB). If any download fails or times out during `docker build`, the whole Phase 2 fails at `docker_build` step.
+The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Playwright Chromium (~400MB). If any download fails or times out during `docker build`, the whole eval fails at `docker_build` step.
 
 **Mitigation:** Keep these RUN layers cached by not changing requirements.txt or the download commands unnecessarily.
 
@@ -180,3 +254,10 @@ The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Pla
 **What happened:** `text_block_reward`, `position_reward`, `color_reward`, and `clip_visual_reward` each launched Playwright independently — 4–6 browser sessions per `step()` call.
 
 **Fix:** Render the predicted HTML once in `environment.py`, pass the `PIL.Image` as `pred_image` parameter to both `color_reward` and `clip_visual_reward` to skip duplicate renders.
+
+---
+
+### 8. Per-step GRPO loses long-horizon signal (Round 2 lesson)
+**What happened (design trap):** Applying GRPO independently at each step means Dev_0 only sees `r_0` — the final reward never flows back. Early turns get misguided signal regardless of episode outcome.
+
+**Fix:** Full-episode GRPO — sample K complete trajectories, apply group-relative advantage to all tokens uniformly. Augment with shaped improvement-delta reward (λ=0.2) for early-turn credit assignment. See `train.py`.
