@@ -53,7 +53,7 @@ CRITIC_SYSTEM = (
     "STATUS: DONE (if all items are [✓]) or OPEN (<N> items remaining)\n\n"
     "Rules:\n"
     "- Only flag something as missing if you CANNOT see it in the current render image.\n"
-    "- For colors: describe visually (e.g. 'button should be dark blue, currently grey'). Do NOT invent hex codes — you are looking at an image, not source code.\n"
+    "- For colors: be as specific as possible — estimate the hex code from the image if you can (e.g. 'button should be dark blue ~#1e40af, currently grey #9ca3af').\n"
     "- For layout: describe position and size differences (e.g. 'header too narrow, should span full width').\n"
     "- For text: flag only if the label/content is visibly wrong or absent.\n"
     "- A blank or white page is never DONE.\n"
@@ -115,7 +115,7 @@ _CRITIC_ONESHOT_MESSAGES = [
         "content": (
             "TODO LIST:\n"
             "[+] ELEMENT-X is missing from the render\n"
-            "[+] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[+] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
             "[+] SECTION-Z is not present\n\n"
             "STATUS: OPEN (3 items remaining)"
         ),
@@ -133,7 +133,7 @@ _CRITIC_ONESHOT_MESSAGES = [
         "content": (
             "TODO LIST:\n"
             "[✓] ELEMENT-X is missing from the render\n"
-            "[✓] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[✓] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
             "[ ] SECTION-Z is not present\n"
             "[+] FONT-W is too large — reduce from ~24px to ~16px\n\n"
             "STATUS: OPEN (2 items remaining)"
@@ -150,7 +150,7 @@ _CRITIC_ONESHOT_MESSAGES = [
         "content": (
             "TODO LIST:\n"
             "[✓] ELEMENT-X is missing from the render\n"
-            "[✓] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[✓] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
             "[✓] SECTION-Z is not present\n"
             "[✓] FONT-W is too large — reduce from ~24px to ~16px\n\n"
             "STATUS: DONE"
