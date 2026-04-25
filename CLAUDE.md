@@ -439,6 +439,22 @@ export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
 ```
 Outputs blog-ready markdown table + saves `checkpoints/eval_results.json`.
 
+**Run 1 results** (20/20 episodes, `checkpoints/run2/developer_final`, 2 ep/difficulty, temperature=0.3):
+| Difficulty | Base 2B | Trained 2B | Delta |
+|---|---|---|---|
+| easy | 0.924 | **0.961** | +0.037 |
+| medium | 0.937 | **0.955** | +0.018 |
+| hard | 0.919 | **0.952** | +0.034 |
+| **mean** | 0.927 | **0.956** | **+3.2%** |
+
+> Evaluated on bundled training samples (in-distribution). Relative delta is the meaningful signal.
+
+**Command to restart vLLM with trained LoRA** (in tmux `vllm` session, after killing old process):
+```bash
+LORA_PATH=checkpoints/run2/developer_final LORA_NAME=qwen35-trained bash scripts/vllm.sh 2b
+# Then use MODEL_NAME=qwen35-trained in inference.py for trained model
+```
+
 **Command to start run 2 (resume from run 1 LoRA):**
 ```bash
 apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c '
