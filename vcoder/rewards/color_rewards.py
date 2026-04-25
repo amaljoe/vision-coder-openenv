@@ -1,8 +1,9 @@
 """Perceptual color reward using CIEDE2000.
 
 Phase 3 of the Design2Code metrics extension.
-Renders both the reference and predicted HTML, samples non-white pixels,
-and computes mean CIEDE2000 perceptual color distance.
+Resizes both images to 128×128 and computes per-pixel CIEDE2000, averaging
+only over pixels where the REFERENCE is non-white. This penalises blank
+predictions even for mostly-white UIs (e.g. login forms on #f0f2f5).
 
 ΔE = 0  → score = 1.0  (perfect color match)
 ΔE = 50 → score = 0.0  (completely wrong colors)
@@ -10,7 +11,6 @@ and computes mean CIEDE2000 perceptual color distance.
 from __future__ import annotations
 
 import logging
-import random
 from typing import Optional
 
 from PIL import Image
@@ -20,32 +20,19 @@ from vcoder.rewards.visual_rewards import _render_html
 
 logger = logging.getLogger(__name__)
 
-_N_SAMPLES = 1000          # pixels to sample per image
-_WHITE_THRESHOLD = 240     # RGB channel value above which a pixel is "near-white"
-_MAX_DELTA_E = 50.0        # ΔE value that maps to score 0.0
+_COMPARE_SIZE = (128, 128)   # downsample resolution for ΔE comparison
+_WHITE_THRESHOLD = 240       # pixel channel value above which a pixel is "near-white"
+_MIN_NONWHITE_FRAC = 0.02    # if reference has fewer non-white pixels than this fraction,
+                              # fall back to full spatial comparison
+_MAX_DELTA_E = 50.0          # ΔE value that maps to score 0.0
 
 
-def _sample_pixels(
-    img: Image.Image,
-    n: int = _N_SAMPLES,
-    seed: int = 42,
-) -> list[tuple[int, int, int]]:
-    """Return up to *n* non-white pixels sampled uniformly from *img*."""
-    rng = random.Random(seed)
+def _nonwhite_mask(arr_rgb: "np.ndarray") -> "np.ndarray":
+    """Boolean mask for pixels where any channel is below _WHITE_THRESHOLD."""
     import numpy as np
-
-    arr = np.array(img.convert("RGB"))
-    pixels = [tuple(p) for p in arr.reshape(-1, 3)]
-    non_white = [
-        (r, g, b)
-        for (r, g, b) in pixels
-        if not (r > _WHITE_THRESHOLD and g > _WHITE_THRESHOLD and b > _WHITE_THRESHOLD)
-    ]
-    if not non_white:
-        non_white = pixels  # all-white image — fall back to raw pixels
-    if len(non_white) <= n:
-        return non_white
-    return rng.sample(non_white, n)
+    return (arr_rgb[:, :, 0] < _WHITE_THRESHOLD) | \
+           (arr_rgb[:, :, 1] < _WHITE_THRESHOLD) | \
+           (arr_rgb[:, :, 2] < _WHITE_THRESHOLD)
 
 
 def color_reward(
@@ -55,8 +42,13 @@ def color_reward(
 ) -> list[float]:
     """Score perceptual color accuracy between rendered HTML and reference.
 
-    Samples non-white pixels from both images and computes the mean
-    CIEDE2000 distance. Returns 0.5 if rendering fails (neutral penalty).
+    Resizes both images to 128×128, computes per-pixel CIEDE2000, then
+    averages only over pixels where the REFERENCE is non-white. This
+    correctly penalises blank predictions even when the reference has a
+    mostly-white background (e.g. a login form on #f0f2f5).
+
+    Falls back to full spatial mean when the reference is nearly all white
+    (< 2% non-white pixels).  Returns 0.5 if rendering fails.
 
     Args:
         completions: List of completion message lists.
@@ -81,7 +73,6 @@ def color_reward(
             import numpy as np
             from skimage.color import deltaE_ciede2000, rgb2lab
 
-            # Use pre-rendered image if supplied, otherwise render now
             if pred_image is not None and i < len(pred_image):
                 rendered = pred_image[i]
             else:
@@ -90,27 +81,25 @@ def color_reward(
                 results.append(0.5)
                 continue
 
-            ref_pixels = _sample_pixels(ref_image.convert("RGB"))
-            pred_pixels = _sample_pixels(rendered)
+            W, H = _COMPARE_SIZE
+            ref_arr  = np.array(ref_image.convert("RGB").resize(_COMPARE_SIZE), dtype=np.float32) / 255.0
+            pred_arr = np.array(rendered.convert("RGB").resize(_COMPARE_SIZE), dtype=np.float32) / 255.0
 
-            # Align sample counts
-            n = min(len(ref_pixels), len(pred_pixels))
-            if n == 0:
-                results.append(0.5)
-                continue
+            ref_lab  = rgb2lab(ref_arr.reshape(1, H, W, 3)).reshape(H * W, 3)
+            pred_lab = rgb2lab(pred_arr.reshape(1, H, W, 3)).reshape(H * W, 3)
+            delta_e  = deltaE_ciede2000(ref_lab, pred_lab)
 
-            ref_arr = np.array(ref_pixels[:n], dtype=np.float32) / 255.0
-            pred_arr = np.array(pred_pixels[:n], dtype=np.float32) / 255.0
-
-            # rgb2lab expects shape (H, W, 3); use (1, n, 3)
-            ref_lab = rgb2lab(ref_arr.reshape(1, n, 3)).reshape(n, 3)
-            pred_lab = rgb2lab(pred_arr.reshape(1, n, 3)).reshape(n, 3)
-
-            delta_e = deltaE_ciede2000(ref_lab, pred_lab)
-            mean_delta_e = float(np.mean(delta_e))
+            # Average ΔE only over pixels where the reference is non-white so
+            # that blank predictions are penalised on a mostly-white reference.
+            mask = _nonwhite_mask((ref_arr * 255).astype(np.uint8)).ravel()
+            if mask.sum() >= _MIN_NONWHITE_FRAC * H * W:
+                mean_delta_e = float(np.mean(delta_e[mask]))
+            else:
+                # Reference is nearly all white — full spatial average
+                mean_delta_e = float(np.mean(delta_e))
 
             score = 1.0 - min(mean_delta_e / _MAX_DELTA_E, 1.0)
-            results.append(score)
+            results.append(float(np.clip(score, 0.0, 1.0)))
 
         except Exception as exc:
             logger.warning("Color reward failed: %s", exc)

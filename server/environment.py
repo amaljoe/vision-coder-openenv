@@ -23,15 +23,15 @@ from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
 MAX_STEPS = 5  # max developer turns per episode
 
 REWARD_WEIGHTS = {
-    "format": 1.0,
-    "validity": 1.0,
-    "structural": 1.0,
-    "text_block": 2.0,
-    "position": 1.0,
-    "color": 1.0,
-    "clip": 2.0,
+    "format":     1.0,
+    "validity":   1.0,
+    "structural": 0.5,   # reduced: inflated by inline-style refs with no CSS classes
+    "text_block": 3.0,   # increased: most discriminative — blank/wrong layout → 0
+    "position":   1.0,
+    "color":      1.0,
+    "clip":       2.0,
 }
-_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.0
+_WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 9.5
 
 LOW_RES = (320, 240)   # developer self-check render
 FULL_RES = (640, 480)  # critic + reward computation render
@@ -174,9 +174,10 @@ class VisionCoderEnvironment:
         tb    = text_block_reward(completions, solution=solutions)[0]
         pos   = position_reward(completions, solution=solutions)[0]
 
-        pred_render = _render_html(extract_html(action.html))
+        ref_w, ref_h = session.ref_image.size
+        pred_render = _render_html(extract_html(action.html), width=ref_w, height=ref_h)
         if pred_render is None:
-            pred_render = Image.new("RGB", FULL_RES, color=(255, 255, 255))
+            pred_render = Image.new("RGB", (ref_w, ref_h), color=(255, 255, 255))
         pred_renders = [pred_render]
 
         col  = color_reward(completions, image=images, pred_image=pred_renders)[0]
