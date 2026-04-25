@@ -41,20 +41,23 @@ DEVELOPER_SYSTEM = (
 CRITIC_SYSTEM = (
     "You are a precise UI reviewer. You will be shown a reference screenshot and the current "
     "rendered HTML output.\n\n"
-    "You maintain a TODO list of issues to fix. On each review:\n"
-    "1. Mark previously listed items [✓] if they are now fixed in the current render.\n"
-    "2. Keep previously listed items [ ] if still not fixed.\n"
-    "3. Add new items with [+] for newly discovered issues.\n\n"
+    "You maintain a TODO list of visual issues to fix. On each review:\n"
+    "1. Look carefully at the CURRENT RENDER image before deciding anything.\n"
+    "2. Mark previously listed items [✓] ONLY if you can clearly see they are fixed in the render.\n"
+    "3. Keep previously listed items [ ] if they are still visibly wrong.\n"
+    "4. Add new items with [+] for newly spotted differences — be specific.\n\n"
     "Always respond in this exact format:\n\n"
     "TODO LIST:\n"
     "[ ] or [✓] or [+] <specific issue>\n"
     "...\n\n"
     "STATUS: DONE (if all items are [✓]) or OPEN (<N> items remaining)\n\n"
     "Rules:\n"
-    "- Be concrete: name specific elements, colors, text, sizes, positions.\n"
-    "- Always list at least 1 item.\n"
-    "- DONE only when every item is [✓] — meaning the render matches the reference.\n"
-    "- A blank, white, or unstyled page is never DONE."
+    "- Only flag something as missing if you CANNOT see it in the current render image.\n"
+    "- For colors: describe visually (e.g. 'button should be dark blue, currently grey'). Do NOT invent hex codes — you are looking at an image, not source code.\n"
+    "- For layout: describe position and size differences (e.g. 'header too narrow, should span full width').\n"
+    "- For text: flag only if the label/content is visibly wrong or absent.\n"
+    "- A blank or white page is never DONE.\n"
+    "- Do not add items that are already correct in the render."
 )
 
 FALLBACK_HTML = "<!DOCTYPE html><html><head></head><body><p>Generation failed.</p></body></html>"
@@ -102,50 +105,54 @@ _CRITIC_ONESHOT_MESSAGES = [
     {
         "role": "user",
         "content": (
-            "[Example 1] Reference: blue navigation bar, white logo centred, three menu items. "
-            "Current render: plain white page, no navigation bar at all."
+            "[FORMAT EXAMPLE — ignore content, follow the structure]\n"
+            "Reference: <image A>. Current render: <image B>.\n"
+            "(No previous TODO list — first review.)"
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[+] Add full-width blue (#1e40af) navigation bar at the top\n"
-            "[+] Add white logo centred in the nav bar\n"
-            "[+] Add three menu items (e.g. Home, About, Contact) in the nav\n\n"
+            "[+] ELEMENT-X is missing from the render\n"
+            "[+] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[+] SECTION-Z is not present\n\n"
             "STATUS: OPEN (3 items remaining)"
         ),
     },
     {
         "role": "user",
         "content": (
-            "[Example 2, step 2 of same episode] Previous TODO shown above. "
-            "Current render now shows: blue nav bar and logo present; still missing the three menu items."
+            "[FORMAT EXAMPLE step 2] Previous TODO above. "
+            "ELEMENT-X and COLOR-Y are now fixed. SECTION-Z still missing. "
+            "New issue spotted: FONT-W is too large."
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[✓] Add full-width blue (#1e40af) navigation bar at the top\n"
-            "[✓] Add white logo centred in the nav bar\n"
-            "[ ] Add three menu items (Home, About, Contact) in the nav\n\n"
-            "STATUS: OPEN (1 item remaining)"
+            "[✓] ELEMENT-X is missing from the render\n"
+            "[✓] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[ ] SECTION-Z is not present\n"
+            "[+] FONT-W is too large — reduce from ~24px to ~16px\n\n"
+            "STATUS: OPEN (2 items remaining)"
         ),
     },
     {
         "role": "user",
         "content": (
-            "[Example 3, step 3 of same episode] All three menu items now present."
+            "[FORMAT EXAMPLE step 3] SECTION-Z and FONT-W now both fixed."
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[✓] Add full-width blue (#1e40af) navigation bar at the top\n"
-            "[✓] Add white logo centred in the nav bar\n"
-            "[✓] Add three menu items (Home, About, Contact) in the nav\n\n"
+            "[✓] ELEMENT-X is missing from the render\n"
+            "[✓] COLOR-Y is wrong — reference shows dark teal, render shows light grey\n"
+            "[✓] SECTION-Z is not present\n"
+            "[✓] FONT-W is too large — reduce from ~24px to ~16px\n\n"
             "STATUS: DONE"
         ),
     },
@@ -185,7 +192,11 @@ class TodoList:
         """Pending items formatted as actionable critique for the Developer."""
         pending = [item for item in self.items if not item.done]
         if not pending:
-            return ""
+            return (
+                "The Critic found no remaining issues from its checklist. "
+                "Look carefully at the reference screenshot for any fine details "
+                "(spacing, colors, text content, missing elements) and refine your HTML."
+            )
         lines = ["Fix the following issues (Critic feedback):"]
         for item in pending:
             lines.append(f"- {item.text}")
@@ -193,7 +204,11 @@ class TodoList:
 
     @classmethod
     def parse(cls, text: str) -> "TodoList":
-        """Parse a TODO list from Critic output text."""
+        """Parse a TODO list from Critic output text.
+
+        [+] items (newly discovered) are always kept pending — they can't be
+        resolved the same step they were first identified.
+        """
         result = cls()
         for line in text.split("\n"):
             line = line.strip()
@@ -202,6 +217,7 @@ class TodoList:
             elif line.startswith("[ ]"):
                 result.items.append(TodoItem(text=line[3:].strip(), done=False))
             elif line.startswith("[+]"):
+                # Newly found — always pending regardless of what the model wrote
                 result.items.append(TodoItem(text=line[3:].strip(), done=False))
         return result
 
@@ -402,7 +418,6 @@ class AgentConfig:
     api_base: str
     model: str
     max_steps: int = 5
-    done_reward_threshold: float = 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +449,7 @@ def run_episode(
 
     Terminates when:
     - max_steps reached (env done=True)
-    - TodoList.all_done() AND reward >= done_reward_threshold
+    - TodoList.all_done() (Critic verified all items resolved)
 
     on_step is called right after each env.step() so callers can log [STEP] before
     [CRITIC] appears — keeping stdout in chronological order.
@@ -517,7 +532,7 @@ def run_episode(
         # Termination checks
         if env_done:
             break
-        if todo is not None and todo.all_done() and reward >= config.done_reward_threshold:
+        if todo is not None and todo.all_done():
             print(f"[CRITIC] All TODO items resolved at step={step_n} reward={reward:.2f} — stopping.", flush=True)
             break
 
