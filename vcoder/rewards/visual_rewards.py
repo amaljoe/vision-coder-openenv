@@ -17,7 +17,8 @@ from vcoder.rewards import extract_html
 
 logger = logging.getLogger(__name__)
 
-_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+import os as _os
+_CLIP_MODEL_NAME = _os.path.expanduser("~/models/clip-vit-base-patch32") if _os.path.isdir(_os.path.expanduser("~/models/clip-vit-base-patch32")) else "openai/clip-vit-base-patch32"
 _clip_model = None
 _clip_processor = None
 
