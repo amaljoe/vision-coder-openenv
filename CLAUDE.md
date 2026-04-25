@@ -13,13 +13,62 @@ OpenEnv-compatible HTTP API: `reset()` / `step()` / `render()` / `state()`.
 - `vcoder/` — reward pipeline and data loading
 - `data/` — bundled synthetic samples (5 per difficulty, ~40KB each)
 
-## Running locally
+## Running on rmgpu006 (cluster)
+
+### Step 1 — start vLLM (tmux session: `vllm`)
+```bash
+~/.local/bin/tmux new-session -s vllm
+# inside that session:
+apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
+  'export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6;
+   /dev/shm/qwen35/bin/python -m vllm.entrypoints.openai.api_server \
+   --model ~/models/Qwen3.5-2B --served-model-name qwen35 \
+   --tensor-parallel-size 2 --port 8001 --host 0.0.0.0 \
+   --max-model-len 16384 --enable-auto-tool-choice --tool-call-parser hermes' \
+   2>&1 | tee ~/vllm_qwen35.log
+```
+**`--enable-auto-tool-choice --tool-call-parser hermes` is mandatory** — without it every Developer call fails with 400 Bad Request and falls back to FALLBACK_HTML.
+
+### Step 2 — start env server (tmux session: `openenv`, no apptainer needed)
+```bash
+~/.local/bin/tmux new-session -s openenv
+# inside that session:
+export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+cd ~/workspace/vision-coder-openenv
+/dev/shm/qwen35/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 18080
+```
+
+### Step 3 — run inference (same openenv session or a new window)
+```bash
+export API_BASE_URL=http://localhost:8001/v1
+export MODEL_NAME=qwen35
+export HF_TOKEN=sk-local
+export MAX_STEPS=2
+export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+cd ~/workspace/vision-coder-openenv
+/dev/shm/qwen35/bin/python inference.py
+```
+
+### First-time setup
+```bash
+# Install package (once per env build)
+/dev/shm/qwen35/bin/pip install -e .
+
+# Download model (once, needs proxy sourced)
+source ~/proxy-setup/scripts/proxy_env.sh
+/dev/shm/qwen35/bin/python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('Qwen/Qwen3.5-2B', local_dir='$HOME/models/Qwen3.5-2B')
+"
+```
+
+## Running locally (generic)
 ```bash
 pip install -e .
 uvicorn openenv.server.app:app --host 0.0.0.0 --port 7860
 ```
 
-## Running inference
+## Running inference (HF router)
 ```bash
 export API_BASE_URL=https://router.huggingface.co/v1
 export MODEL_NAME=Qwen/Qwen3.5-35B-A3B
@@ -31,9 +80,12 @@ python inference.py
 - `API_BASE_URL` — OpenAI-compatible LLM endpoint (required)
 - `MODEL_NAME` — vision-capable model ID (required); Developer and Critic share this endpoint
 - `HF_TOKEN` — Hugging Face token / API key for LLM calls (primary auth key)
+- `MAX_STEPS` — max developer turns per episode (default: 5)
+- `INFERENCE_SERVER_PORT` — env server port (default: 18080)
 
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
+On rmgpu006: use `/dev/shm/qwen35/bin/python`.
 
 ---
 
