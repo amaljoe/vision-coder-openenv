@@ -167,14 +167,15 @@ Live reward curve (updating as training runs):
 | 9 | hard | 0.245 | 2.0 | −0.186 |
 | 10 | easy | 0.283 | 1.5 | −0.123 |
 | 11 | medium | 0.239 | 1.0 | −0.007 |
+| 12 | hard | **0.256** | 1.5 | +0.207 |
 | … | … | … | … | … |
 
-**Observations (11/20 episodes, training in progress):**
-- **Easy trend**: 0.312 → 0.286 → **0.349** → 0.283 — peak at ep=7; ep=10 dip likely from MAX_NEW_TOKENS=1024 truncating HTML (fixed to 2048 for run 2)
-- **Medium trend**: 0.280 → 0.287 → 0.228 → 0.239 — oscillates; Critic early-termination (mean_steps=1.0 at ep=8,11) collapses variance
-- **Hard trend**: 0.230 → 0.238 → 0.245 — slow but consistent upward gradient; 2-step rollouts provide better credit assignment
-- Loss = −0.315 at ep=7 is the peak signal; ep=11 near-zero loss (−0.007) indicates collapsed rollout variance from early Critic termination
-- Table and plot will be updated as remaining 9 episodes complete
+**Observations (12/20 episodes, training in progress):**
+- **Easy trend**: 0.312 → 0.286 → **0.349** → 0.283 — peak at ep=7; ep=10 dip from MAX_NEW_TOKENS=1024 truncating HTML (fixed to 2048 for run 2)
+- **Medium trend**: 0.280 → 0.287 → 0.228 → 0.239 — oscillates; Critic early-termination (mean_steps=1.0 at ep=8,11) collapses gradient variance
+- **Hard trend**: 0.230 → 0.238 → 0.245 → **0.256** — consistent upward gradient; ep=12 is the highest hard score yet
+- Loss +0.207 at ep=12 is the GRPO pushing down below-average rollouts (expected when variance is high and some rollouts underperform)
+- Table and plot will be updated as remaining 8 episodes complete
 
 ---
 

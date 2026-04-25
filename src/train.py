@@ -614,7 +614,7 @@ def main() -> None:
 
     # Reward log
     log_path = CHECKPOINT_DIR / "reward_log.csv"
-    log_file = open(log_path, "w", newline="")
+    log_file = open(log_path, "w", newline="", buffering=1)
     log_writer = csv.DictWriter(
         log_file,
         fieldnames=["phase", "episode", "difficulty", "mean_terminal_reward", "mean_steps", "loss"],
