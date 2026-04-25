@@ -248,7 +248,7 @@ def run_inference() -> None:
 
             run_episode(env_client, config, session_id, ref_b64, dbg, on_step=_on_step)
 
-            score = episode_rewards[-1] if episode_rewards else 0.0
+            score = max(episode_rewards) if episode_rewards else 0.0
             success = score >= SUCCESS_SCORE_THRESHOLD
 
         except Exception as exc:

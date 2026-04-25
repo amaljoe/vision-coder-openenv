@@ -286,12 +286,13 @@ def critic_turn(
     render_curr_b64: str,
     prev_todo: Optional[TodoList],
     render_prev_b64: Optional[str] = None,
+    current_html: str = "",
     dbg=None,
 ) -> Tuple[str, TodoList]:
     """Critic reviews current render vs reference and returns (raw_text, updated TodoList).
 
-    The TodoList is maintained across steps: items are marked done/pending/new
-    based on what the Critic observes. Episode ends programmatically when all_done().
+    Receives the Developer's HTML source so it can write selector-specific CSS fixes
+    instead of abstract visual observations.
     """
     is_first = prev_todo is None
 
@@ -319,13 +320,23 @@ def critic_turn(
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{render_curr_b64}"}},
     ]
 
+    if current_html:
+        content.append({
+            "type": "text",
+            "text": (
+                f"\nDeveloper's current HTML source (use exact selectors in your FIX instructions):\n"
+                f"```html\n{current_html[:3000]}\n```"
+            ),
+        })
+
     if is_first:
         content.append({
             "type": "text",
             "text": (
                 "\nThis is the first review. Perform a comprehensive visual audit covering "
                 "LAYOUT, STRUCTURE, COLOR, TYPOGRAPHY, SPACING, and TEXT dimensions. "
-                "Output your initial TODO LIST with [+] items only."
+                "Output your initial TODO LIST with [+] items only. "
+                "Each item MUST include a → FIX: instruction with exact CSS."
             ),
         })
     else:
@@ -333,8 +344,9 @@ def critic_turn(
             "type": "text",
             "text": (
                 f"\n{prev_todo.format_for_critic()}\n\n"
-                "Update the TODO list based on what you see in the CURRENT RENDER. "
-                "Mark fixed items [✓], keep unresolved items [ ], add new issues with [+]. "
+                "Update the TODO list based on what you see in the CURRENT RENDER and HTML. "
+                "Mark fixed items [✓], keep unresolved items [ ] (update FIX selector if HTML changed), "
+                "add new issues with [+]. Each item must have a → FIX: instruction. "
                 "Stop after the last item — no STATUS or summary line."
             ),
         })
@@ -405,30 +417,45 @@ def run_episode(
 
     Terminates when:
     - max_steps reached (env done=True)
-    - TodoList.all_done() (Critic verified all items resolved)
+    - Critic marks all TODO items resolved
+    - No reward improvement for 2 consecutive steps (plateau)
 
-    on_step is called right after each env.step() so callers can log [STEP] before
-    [CRITIC] appears — keeping stdout in chronological order.
+    Monotonic reward guarantee: Developer always receives the best-seen HTML as
+    its base, so regressions don't compound. If a step produces lower reward the
+    Developer retries from the best-known state on the next step.
     """
     client = OpenAI(api_key=config.api_key, base_url=config.api_base)
 
     current_html = ""
+    best_html = ""
+    best_reward = 0.0
+    no_improve_streak = 0
+    _MAX_NO_IMPROVE = 2
+
     todo: Optional[TodoList] = None
     render_prev: Optional[str] = None
     results: List[StepResult] = []
 
     for step_i in range(config.max_steps):
-        # Guard: if previous Critic already resolved all items, stop before developer runs
-        if todo is not None and todo.all_done():
+        # Guard: Critic resolved everything
+        if todo is not None and todo.pending_count() == 0:
+            break
+        # Guard: plateau — no improvement for N consecutive steps
+        if no_improve_streak >= _MAX_NO_IMPROVE:
+            print(
+                f"[CRITIC] No improvement for {_MAX_NO_IMPROVE} consecutive steps "
+                f"(best={best_reward:.3f}) — stopping early.",
+                flush=True,
+            )
             break
 
         error: Optional[str] = None
 
-        # Developer turn
+        # Developer always starts from the best-seen HTML to avoid compounding regressions
         try:
             current_html = developer_turn(
                 client, env_client, config.model,
-                ref_b64, current_html, todo, dbg,
+                ref_b64, best_html, todo, dbg,
             )
         except Exception as exc:
             error = str(exc)[:120]
@@ -446,6 +473,14 @@ def run_episode(
         env_done = bool(result.get("done", False))
         render_full = result.get("render_full")
         sub_rewards = result.get("metadata", {}).get("rewards")
+
+        # Monotonic tracking — update best only on genuine improvement
+        if reward > best_reward:
+            best_reward = reward
+            best_html = current_html
+            no_improve_streak = 0
+        else:
+            no_improve_streak += 1
 
         if dbg:
             dbg.log_step_result(reward, env_done, render_full, sub_rewards)
@@ -476,12 +511,16 @@ def run_episode(
                     ref_b64, render_full,
                     prev_todo=todo,
                     render_prev_b64=render_prev,
+                    current_html=current_html,
                     dbg=dbg,
                 )
                 sr.critique = critique_text
                 sr.todo = todo
                 preview = critique_text.replace("\n", " ")[:200]
-                print(f"[CRITIC] step={step_n} reward={reward:.2f} → {preview}", flush=True)
+                print(
+                    f"[CRITIC] step={step_n} reward={reward:.3f} best={best_reward:.3f} → {preview}",
+                    flush=True,
+                )
             except Exception as exc:
                 logger.warning("Critic failed: %s", exc)
                 todo = None
@@ -489,11 +528,422 @@ def run_episode(
         results.append(sr)
         render_prev = render_full
 
-        # Termination checks — Critic is the sole judge, no reward-based guards
         if env_done:
             break
-        if todo is not None and todo.all_done():
-            print(f"[CRITIC] All TODO items resolved at step={step_n} reward={reward:.2f} — stopping.", flush=True)
+        if todo is not None and todo.pending_count() == 0:
+            print(
+                f"[CRITIC] All items resolved at step={step_n} reward={reward:.3f} — stopping.",
+                flush=True,
+            )
+            break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Approach B: Long-horizon Developer (no Critic, sees full history)
+# ---------------------------------------------------------------------------
+
+def developer_turn_long_horizon(
+    client: OpenAI,
+    model: str,
+    ref_b64: str,
+    history: List[Tuple[str, str]],  # list of (render_full_b64, html)
+    dbg=None,
+) -> str:
+    """Developer with full history: reference + all previous renders + all previous HTML."""
+    messages = [{"role": "system", "content": DEVELOPER_SYSTEM}]
+
+    user_content: list = [
+        {"type": "text", "text": "Reference screenshot (reproduce this UI):"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
+    ]
+
+    if history:
+        for i, (render_b64, prev_html) in enumerate(history, 1):
+            user_content.append({
+                "type": "text",
+                "text": f"\n\nStep {i} render:",
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{render_b64}"},
+            })
+            user_content.append({
+                "type": "text",
+                "text": f"Step {i} HTML:\n```html\n{prev_html[:2000]}\n```",
+            })
+        user_content.append({
+            "type": "text",
+            "text": (
+                "\n\nAll your previous attempts are shown above. "
+                "Generate improved HTML that better matches the reference. "
+                "Output the HTML only."
+            ),
+        })
+    else:
+        user_content.append({
+            "type": "text",
+            "text": "\n\nGenerate complete HTML with inline CSS. Output the HTML only.",
+        })
+
+    messages.append({"role": "user", "content": user_content})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=4096,
+        temperature=0.7,
+    )
+    content = response.choices[0].message.content or ""
+    html_out = _clean_html_output(content)
+    return html_out if _looks_like_html(html_out) else FALLBACK_HTML
+
+
+def run_episode_long_dev(
+    env_client,
+    config: AgentConfig,
+    session_id: str,
+    ref_b64: str,
+    dbg=None,
+    on_step=None,
+) -> List[StepResult]:
+    """Approach B: Long-horizon Developer only — full history, no Critic."""
+    client = OpenAI(api_key=config.api_key, base_url=config.api_base)
+
+    current_html = ""
+    history: List[Tuple[str, str]] = []
+    results: List[StepResult] = []
+
+    for step_i in range(config.max_steps):
+        error: Optional[str] = None
+        try:
+            current_html = developer_turn_long_horizon(
+                client, config.model, ref_b64, history, dbg
+            )
+        except Exception as exc:
+            error = str(exc)[:120]
+            current_html = FALLBACK_HTML
+
+        step_resp = env_client.post(
+            "/step",
+            json={"html": current_html, "session_id": session_id},
+        )
+        step_resp.raise_for_status()
+        result = step_resp.json()
+
+        reward = float(result.get("reward", 0.0))
+        env_done = bool(result.get("done", False))
+        render_full = result.get("render_full")
+        sub_rewards = result.get("metadata", {}).get("rewards")
+
+        step_n = step_i + 1
+        sr = StepResult(
+            step=step_n,
+            html=current_html,
+            reward=reward,
+            done=env_done,
+            critique="",
+            todo=None,
+            render_full_b64=render_full,
+            sub_rewards=sub_rewards,
+            error=error,
+        )
+        if on_step:
+            on_step(sr)
+
+        if render_full:
+            history.append((render_full, current_html))
+
+        results.append(sr)
+        if env_done:
+            break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Approach C: Short-horizon Developer (no Critic, sees only last render)
+# ---------------------------------------------------------------------------
+
+def developer_turn_short_horizon(
+    client: OpenAI,
+    model: str,
+    ref_b64: str,
+    prev_render_b64: Optional[str],
+    prev_html: Optional[str],
+    dbg=None,
+) -> str:
+    """Developer with short horizon: reference + only last render + only last HTML."""
+    messages = [{"role": "system", "content": DEVELOPER_SYSTEM}]
+
+    user_content: list = [
+        {"type": "text", "text": "Reference screenshot (reproduce this UI):"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
+    ]
+
+    if prev_render_b64 and prev_html:
+        user_content += [
+            {"type": "text", "text": "\n\nYour previous render:"},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{prev_render_b64}"}},
+            {
+                "type": "text",
+                "text": (
+                    f"\n\nYour previous HTML:\n```html\n{prev_html[:3000]}\n```\n\n"
+                    "Compare the renders and output improved HTML only."
+                ),
+            },
+        ]
+    else:
+        user_content.append({
+            "type": "text",
+            "text": "\n\nGenerate complete HTML with inline CSS. Output the HTML only.",
+        })
+
+    messages.append({"role": "user", "content": user_content})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=4096,
+        temperature=0.7,
+    )
+    content = response.choices[0].message.content or ""
+    html_out = _clean_html_output(content)
+    return html_out if _looks_like_html(html_out) else FALLBACK_HTML
+
+
+def run_episode_short_dev(
+    env_client,
+    config: AgentConfig,
+    session_id: str,
+    ref_b64: str,
+    dbg=None,
+    on_step=None,
+) -> List[StepResult]:
+    """Approach C: Short-horizon Developer only — sees only last render each step, no Critic."""
+    client = OpenAI(api_key=config.api_key, base_url=config.api_base)
+
+    current_html = ""
+    prev_render: Optional[str] = None
+    results: List[StepResult] = []
+
+    for step_i in range(config.max_steps):
+        error: Optional[str] = None
+        try:
+            current_html = developer_turn_short_horizon(
+                client, config.model, ref_b64,
+                prev_render,
+                current_html if step_i > 0 else None,
+                dbg,
+            )
+        except Exception as exc:
+            error = str(exc)[:120]
+            current_html = FALLBACK_HTML
+
+        step_resp = env_client.post(
+            "/step",
+            json={"html": current_html, "session_id": session_id},
+        )
+        step_resp.raise_for_status()
+        result = step_resp.json()
+
+        reward = float(result.get("reward", 0.0))
+        env_done = bool(result.get("done", False))
+        render_full = result.get("render_full")
+        sub_rewards = result.get("metadata", {}).get("rewards")
+
+        step_n = step_i + 1
+        sr = StepResult(
+            step=step_n,
+            html=current_html,
+            reward=reward,
+            done=env_done,
+            critique="",
+            todo=None,
+            render_full_b64=render_full,
+            sub_rewards=sub_rewards,
+            error=error,
+        )
+        if on_step:
+            on_step(sr)
+
+        prev_render = render_full  # only keep the latest render
+        results.append(sr)
+        if env_done:
+            break
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Approach D: Long-horizon Developer (low-res renders) + simple free-form Critic
+# ---------------------------------------------------------------------------
+
+_SIMPLE_CRITIC_SYSTEM = (
+    "You are a UI reviewer. You will be shown a reference screenshot and a current render "
+    "of HTML that is meant to reproduce it.\n\n"
+    "Describe what needs to change the most to make the render match the reference. "
+    "Be concise and specific — mention exact colors, sizes, or elements where helpful. "
+    "You can write a short paragraph or a bullet list. No structured format required."
+)
+
+_SIMPLE_DEV_SYSTEM = (
+    "You are a UI-to-code expert. Given a reference screenshot of a web page, "
+    "generate complete HTML with inline CSS that reproduces the layout as accurately as possible.\n\n"
+    "Critical layout rules:\n"
+    "- Always use `* { box-sizing: border-box; margin: 0; padding: 0; }` reset.\n"
+    "- Page and all top-level sections must be full-width: `width: 100%; min-height: 100vh`.\n"
+    "- Never center-constrain the overall page — only constrain inner content containers if the reference does.\n"
+    "- Match background colors, section colors, and typography as precisely as possible.\n\n"
+    "Output ONLY the raw HTML code starting with <!DOCTYPE html>. "
+    "No explanations, no markdown fences — just the HTML."
+)
+
+
+def _simple_critic_turn(
+    client: OpenAI,
+    model: str,
+    ref_b64: str,
+    render_full_b64: str,
+) -> str:
+    """Simple free-form critic: compare ref vs render, say what needs to change most."""
+    messages = [{"role": "system", "content": _SIMPLE_CRITIC_SYSTEM}]
+    messages.append({"role": "user", "content": [
+        {"type": "text", "text": "Reference:"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
+        {"type": "text", "text": "Current render:"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{render_full_b64}"}},
+        {"type": "text", "text": "What needs to change the most?"},
+    ]})
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=512,
+        temperature=0.1,
+    )
+    return response.choices[0].message.content or ""
+
+
+def _developer_turn_d(
+    client: OpenAI,
+    model: str,
+    ref_b64: str,
+    history: List[Tuple[str, str]],  # (render_low_b64, html)
+    critique: Optional[str],
+) -> str:
+    """Approach D developer: full-res ref + all previous low-res renders + all HTML + critic feedback."""
+    messages = [{"role": "system", "content": _SIMPLE_DEV_SYSTEM}]
+
+    user_content: list = [
+        {"type": "text", "text": "Reference screenshot (reproduce this UI):"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
+    ]
+
+    if history:
+        for i, (render_low_b64, prev_html) in enumerate(history, 1):
+            user_content.append({"type": "text", "text": f"\n\nStep {i} render (low-res preview):"})
+            user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{render_low_b64}"}})
+            user_content.append({"type": "text", "text": f"Step {i} HTML:\n```html\n{prev_html[:2000]}\n```"})
+
+    if critique:
+        user_content.append({
+            "type": "text",
+            "text": f"\n\nReviewer feedback on your last render:\n{critique}\n\nGenerate improved HTML addressing this feedback. Output the HTML only.",
+        })
+    elif history:
+        user_content.append({
+            "type": "text",
+            "text": "\n\nGenerate improved HTML that better matches the reference. Output the HTML only.",
+        })
+    else:
+        user_content.append({
+            "type": "text",
+            "text": "\n\nGenerate complete HTML with inline CSS. Output the HTML only.",
+        })
+
+    messages.append({"role": "user", "content": user_content})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=4096,
+        temperature=0.7,
+    )
+    content = response.choices[0].message.content or ""
+    html_out = _clean_html_output(content)
+    return html_out if _looks_like_html(html_out) else FALLBACK_HTML
+
+
+def run_episode_d(
+    env_client,
+    config: AgentConfig,
+    session_id: str,
+    ref_b64: str,
+    dbg=None,
+    on_step=None,
+) -> List[StepResult]:
+    """Approach D: long-horizon dev (low-res renders) + simple free-form critic."""
+    client = OpenAI(api_key=config.api_key, base_url=config.api_base)
+
+    current_html = ""
+    history: List[Tuple[str, str]] = []  # (render_low_b64, html)
+    critique: Optional[str] = None
+    results: List[StepResult] = []
+
+    for step_i in range(config.max_steps):
+        error: Optional[str] = None
+        try:
+            current_html = _developer_turn_d(
+                client, config.model, ref_b64, history, critique
+            )
+        except Exception as exc:
+            error = str(exc)[:120]
+            current_html = FALLBACK_HTML
+
+        step_resp = env_client.post(
+            "/step",
+            json={"html": current_html, "session_id": session_id},
+        )
+        step_resp.raise_for_status()
+        result = step_resp.json()
+
+        reward = float(result.get("reward", 0.0))
+        env_done = bool(result.get("done", False))
+        render_full = result.get("render_full")
+        render_low = result.get("render_low")
+        sub_rewards = result.get("metadata", {}).get("rewards")
+
+        step_n = step_i + 1
+        sr = StepResult(
+            step=step_n,
+            html=current_html,
+            reward=reward,
+            done=env_done,
+            critique=critique or "",
+            todo=None,
+            render_full_b64=render_full,
+            sub_rewards=sub_rewards,
+            error=error,
+        )
+        if on_step:
+            on_step(sr)
+
+        if render_low:
+            history.append((render_low, current_html))
+
+        # Critic turn (skip on final env step)
+        if not env_done and render_full:
+            try:
+                critique = _simple_critic_turn(client, config.model, ref_b64, render_full)
+                preview = critique.replace("\n", " ")[:200]
+                print(f"[CRITIC-D] step={step_n} reward={reward:.2f} → {preview}", flush=True)
+            except Exception as exc:
+                logger.warning("Critic-D failed: %s", exc)
+                critique = None
+
+        results.append(sr)
+        if env_done:
             break
 
     return results
