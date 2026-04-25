@@ -10,7 +10,7 @@ Reward design:
 Usage:
   python train.py --phase developer --episodes 200 --k-rollouts 4
   python train.py --phase critic    --episodes 200 --k-rollouts 4
-  python train.py --alternate --episodes-per-phase 200 --k-rollouts 4 --phases 4
+  python train.py --phase alternate --episodes-per-phase 200 --k-rollouts 4 --num-phases 4
 
 Requirements:
   pip install peft transformers accelerate
@@ -35,6 +35,8 @@ from typing import List, Optional
 import torch
 import torch.nn.functional as F
 
+from openenv.prompts import DEVELOPER_TRAIN_SYSTEM, CRITIC_TRAIN_SYSTEM
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -57,24 +59,17 @@ LORA_TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_
 
 LR = 2e-5
 MAX_GRAD_NORM = 1.0
-MAX_NEW_TOKENS = 4096
+MAX_NEW_TOKENS = 1024   # capped for training — reduces OOM in gradient forward pass
 CRITIC_MAX_TOKENS = 512
 
-DEVELOPER_SYSTEM = (
-    "You are a UI-to-code expert. Given a reference screenshot of a web page, "
-    "generate complete HTML with inline CSS that reproduces the layout as accurately as possible. "
-    "Output ONLY raw HTML — no markdown fences, no explanations."
-)
-CRITIC_SYSTEM = (
-    "You are a precise UI reviewer. Compare the rendered HTML to the reference screenshot. "
-    "List specific visual differences to fix. "
-    "Output exactly DONE if the render closely matches the reference."
-)
+DEVELOPER_SYSTEM = DEVELOPER_TRAIN_SYSTEM
+CRITIC_SYSTEM = CRITIC_TRAIN_SYSTEM
 
 
 class Phase(Enum):
     DEVELOPER = "developer"
     CRITIC = "critic"
+    COMBINED = "combined"   # train both agents simultaneously
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +79,14 @@ class Phase(Enum):
 @dataclass
 class TurnData:
     """One agent turn: stored tokens + reward for log-prob recomputation."""
-    phase: Phase                             # which agent generated this
-    input_ids: torch.Tensor                  # prompt tokens [seq_len]
-    pixel_values: Optional[torch.Tensor]     # image pixels (may be None)
-    image_grid_thw: Optional[torch.Tensor]   # Qwen VL position info
-    generated_ids: torch.Tensor              # generated tokens [gen_len]
-    text_output: str                         # decoded text
-    reward_after: Optional[float] = None     # env reward after developer turn (None for critic turns)
+    phase: Phase                               # which agent generated this
+    input_ids: torch.Tensor                    # prompt tokens [seq_len]
+    pixel_values: Optional[torch.Tensor]       # image pixels (may be None)
+    image_grid_thw: Optional[torch.Tensor]     # Qwen3-VL image grid positions
+    mm_token_type_ids: Optional[torch.Tensor]  # Qwen3-VL multimodal token types
+    generated_ids: torch.Tensor                # generated tokens [gen_len]
+    text_output: str                           # decoded text
+    reward_after: Optional[float] = None       # env reward after developer turn (None for critic turns)
     step_idx: int = 0
 
 
@@ -168,8 +164,8 @@ def _wait_for_server(timeout: float = 120.0) -> None:
 # ---------------------------------------------------------------------------
 
 def setup_model(model_name: str = MODEL_NAME):
-    """Load Qwen3.5-9B with LoRA. Returns (model, processor)."""
-    from transformers import AutoModelForCausalLM, AutoProcessor
+    """Load Qwen3.5 VL with LoRA. Returns (model, processor)."""
+    from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
     from peft import LoraConfig, get_peft_model, TaskType
 
     logger.info("Loading %s …", model_name)
@@ -178,11 +174,15 @@ def setup_model(model_name: str = MODEL_NAME):
 
     processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
 
-    model = AutoModelForCausalLM.from_pretrained(
+    # Qwen3.5 VL: use Qwen3_5ForConditionalGeneration (handles pixel_values/image_grid_thw).
+    # ignore_mismatched_sizes=True: some Q-proj weights differ between text/VL configs;
+    # they're re-initialised from scratch — LoRA adapts them during training.
+    model = Qwen3_5ForConditionalGeneration.from_pretrained(
         model_name,
         torch_dtype=dtype,
         device_map=device_map,
         trust_remote_code=True,
+        ignore_mismatched_sizes=True,
     )
 
     lora_cfg = LoraConfig(
@@ -194,14 +194,22 @@ def setup_model(model_name: str = MODEL_NAME):
         bias="none",
     )
     model = get_peft_model(model, lora_cfg)
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.print_trainable_parameters()
     return model, processor
 
 
 def _prepare_inputs(processor, messages: list, images: list, device: str) -> dict:
-    """Apply chat template and processor, return input tensors."""
+    """Apply chat template and processor (Qwen3-VL format), return input tensors."""
+    from qwen_vl_utils import process_vision_info
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=text, images=images or None, return_tensors="pt")
+    image_inputs, video_inputs = process_vision_info(messages)
+    inputs = processor(
+        text=[text],
+        images=image_inputs if image_inputs else None,
+        videos=video_inputs if video_inputs else None,
+        return_tensors="pt",
+    )
     return {k: v.to(device) for k, v in inputs.items()}
 
 
@@ -266,7 +274,7 @@ def rollout_episode(
             })
         dev_messages.append({"role": "user", "content": user_content})
 
-        is_dev_trainable = (training_phase == Phase.DEVELOPER)
+        is_dev_trainable = training_phase in (Phase.DEVELOPER, Phase.COMBINED)
         if not is_dev_trainable:
             model.disable_adapter_layers()
 
@@ -288,6 +296,7 @@ def rollout_episode(
             input_ids=inputs["input_ids"][0].cpu(),
             pixel_values=inputs.get("pixel_values", torch.empty(0)).cpu(),
             image_grid_thw=inputs.get("image_grid_thw", torch.empty(0)).cpu(),
+            mm_token_type_ids=inputs.get("mm_token_type_ids", torch.empty(0)).cpu(),
             generated_ids=generated_ids.cpu(),
             text_output=current_html,
             step_idx=step_i,
@@ -314,7 +323,7 @@ def rollout_episode(
             break
 
         # --- Critic turn ---
-        is_crit_trainable = (training_phase == Phase.CRITIC)
+        is_crit_trainable = training_phase in (Phase.CRITIC, Phase.COMBINED)
         if not is_crit_trainable:
             model.disable_adapter_layers()
 
@@ -359,7 +368,6 @@ def rollout_episode(
                 crit_output = model.generate(
                     **crit_inputs,
                     max_new_tokens=CRITIC_MAX_TOKENS,
-                    temperature=0.1,
                     do_sample=False,
                     pad_token_id=processor.tokenizer.eos_token_id,
                 )
@@ -371,6 +379,7 @@ def rollout_episode(
                 input_ids=crit_inputs["input_ids"][0].cpu(),
                 pixel_values=crit_inputs.get("pixel_values", torch.empty(0)).cpu(),
                 image_grid_thw=crit_inputs.get("image_grid_thw", torch.empty(0)).cpu(),
+                mm_token_type_ids=crit_inputs.get("mm_token_type_ids", torch.empty(0)).cpu(),
                 generated_ids=crit_gen_ids.cpu(),
                 text_output=critique,
                 step_idx=step_i,
@@ -410,9 +419,11 @@ def compute_pg_loss(
     loss_terms: List[torch.Tensor] = []
 
     dev_step_idx = 0  # tracks which developer step we're on
+    is_combined = (training_phase == Phase.COMBINED)
 
     for turn in episode.turns:
-        if turn.phase != training_phase:
+        # Combined: train all turns; otherwise only the matching phase
+        if not is_combined and turn.phase != training_phase:
             dev_step_idx += (1 if turn.phase == Phase.DEVELOPER else 0)
             continue
 
@@ -426,23 +437,21 @@ def compute_pg_loss(
         if len(turn.generated_ids) == 0:
             continue
 
-        # Reconstruct full sequence: [prompt | generated]
-        full_ids = torch.cat([turn.input_ids, turn.generated_ids], dim=0).unsqueeze(0).to(device)
-        prompt_len = turn.input_ids.shape[0]
+        # Reconstruct full sequence: [prompt | generated], capped to avoid OOM
+        MAX_GRAD_SEQ = 512
+        prompt_ids = turn.input_ids[-MAX_GRAD_SEQ:]   # keep tail of prompt (most relevant)
+        gen_ids_trunc = turn.generated_ids[:MAX_GRAD_SEQ]
+        full_ids = torch.cat([prompt_ids, gen_ids_trunc], dim=0).unsqueeze(0).to(device)
 
-        # Build pixel_values / image_grid_thw kwargs
-        extra = {}
-        if turn.pixel_values.numel() > 0:
-            extra["pixel_values"] = turn.pixel_values.to(device)
-        if turn.image_grid_thw.numel() > 0:
-            extra["image_grid_thw"] = turn.image_grid_thw.to(device)
+        # Skip vision kwargs for gradient forward pass: text-only log-probs are sufficient
+        outputs = model(input_ids=full_ids)
+        logits = outputs.logits[0]  # [expanded_seq_len, vocab_size]
 
-        outputs = model(input_ids=full_ids, **extra)
-        logits = outputs.logits[0]  # [seq_len, vocab_size]
-
-        # Shift: predict token t+1 from position t
-        gen_logits = logits[prompt_len - 1: prompt_len - 1 + len(turn.generated_ids)]
-        gen_ids = turn.generated_ids.to(device)
+        # Shift: generated tokens are at the tail; use truncated lengths
+        gen_len = len(gen_ids_trunc)
+        actual_prompt_len = logits.shape[0] - gen_len
+        gen_logits = logits[actual_prompt_len - 1: actual_prompt_len - 1 + gen_len]
+        gen_ids = gen_ids_trunc.to(device)
 
         log_probs = F.log_softmax(gen_logits, dim=-1)
         token_log_probs = log_probs.gather(1, gen_ids.unsqueeze(1)).squeeze(1)
@@ -567,8 +576,10 @@ def run_phase(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    global MODEL_NAME, CHECKPOINT_DIR
+
     parser = argparse.ArgumentParser(description="VisionCoder Round 2 RL training")
-    parser.add_argument("--phase", choices=["developer", "critic", "alternate"],
+    parser.add_argument("--phase", choices=["developer", "critic", "alternate", "combined"],
                         default="alternate")
     parser.add_argument("--episodes", type=int, default=200,
                         help="Episodes for single-phase training")
@@ -582,7 +593,6 @@ def main() -> None:
     parser.add_argument("--checkpoint-dir", type=str, default=str(CHECKPOINT_DIR))
     args = parser.parse_args()
 
-    global MODEL_NAME, CHECKPOINT_DIR
     MODEL_NAME = args.model
     CHECKPOINT_DIR = Path(args.checkpoint_dir)
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
@@ -612,7 +622,7 @@ def main() -> None:
     log_writer.writeheader()
 
     try:
-        if args.phase in ("developer", "critic"):
+        if args.phase in ("developer", "critic", "combined"):
             phase = Phase(args.phase)
             run_phase(model, processor, optimizer, phase, args.episodes, args.k_rollouts, log_writer)
         else:

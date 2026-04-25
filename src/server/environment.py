@@ -10,16 +10,16 @@ from typing import Dict, Optional
 from PIL import Image
 
 from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
-from vcoder.data.dataset import load_websight_dataset
-from vcoder.rewards.color_rewards import color_reward
-from vcoder.rewards.format_rewards import format_reward
-from vcoder.rewards.position_rewards import position_reward
-from vcoder.rewards.ssim_reward import ssim_reward
-from vcoder.rewards.structural_rewards import structural_similarity_reward
-from vcoder.rewards.text_block_rewards import text_block_reward
-from vcoder.rewards.validity_rewards import html_validity_reward
-from vcoder.rewards import extract_html
-from vcoder.rewards.visual_rewards import _render_html, clip_visual_reward
+from openenv.dataset import load_websight_dataset
+from openenv.server.rewards.color_rewards import color_reward
+from openenv.server.rewards.format_rewards import format_reward
+from openenv.server.rewards.position_rewards import position_reward
+from openenv.server.rewards.ssim_reward import ssim_reward
+from openenv.server.rewards.structural_rewards import structural_similarity_reward
+from openenv.server.rewards.text_block_rewards import text_block_reward
+from openenv.server.rewards.validity_rewards import html_validity_reward
+from openenv.server.rewards import extract_html
+from openenv.server.rewards.visual_rewards import _render_html, clip_visual_reward
 
 MAX_STEPS = 5  # max developer turns per episode
 

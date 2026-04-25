@@ -1,7 +1,7 @@
 """Validity reward: checks HTML parseability and structural completeness."""
 from __future__ import annotations
 
-from vcoder.rewards import extract_html
+from openenv.server.rewards import extract_html
 
 # Minimum unique tags to consider "diverse" content (8 matches docstring intent)
 _MIN_DIVERSE_TAGS = 8

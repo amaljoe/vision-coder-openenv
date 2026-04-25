@@ -12,8 +12,8 @@ import logging
 import math
 from typing import Optional
 
-from vcoder.rewards import extract_html
-from vcoder.rewards.text_block_rewards import _get_text_blocks
+from openenv.server.rewards import extract_html
+from openenv.server.rewards.text_block_rewards import _get_text_blocks
 
 logger = logging.getLogger(__name__)
 

@@ -8,12 +8,12 @@ OpenEnv-compatible HTTP API: `reset()` / `step()` / `render()` / `state()`.
 **Round 2** (current `main`): multi-step iterative environment + multi-agent (Developer + Critic) + RL training.
 
 ## Package structure
-- `openenv/` — mapped to repo root (`__init__.py`, `client.py`, `models.py`)
-- `openenv.server` — mapped to `server/` (`app.py`, `environment.py`)
-- `vcoder/` — reward pipeline and data loading
+- `src/` — maps to `openenv` package (`client.py`, `models.py`, `agents.py`, `prompts.py`, `inference.py`, `train.py`, `dataset.py`)
+- `src/server/` — maps to `openenv.server` (`app.py`, `environment.py`)
+- `src/server/rewards/` — maps to `openenv.server.rewards` (one file per reward function)
 - `data/` — bundled synthetic samples (5 per difficulty, ~40KB each)
 - `data/tests/` — reward stability test cases (0-14; committed HTML + expected scores; renders gitignored)
-- `tests/test_reward_stability.py` — reward stability test suite (see "Reward stability tests" section)
+- `tests/test_rewards.py` — unified test suite (unit + stability + correlation tests)
 
 ## Running on rmgpu006 (cluster)
 
@@ -37,7 +37,7 @@ apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
 # inside that session:
 export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
 cd ~/workspace/vision-coder-openenv
-/dev/shm/qwen35/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 18080
+/dev/shm/qwen35/bin/python -m uvicorn openenv.server.app:app --host 127.0.0.1 --port 18080
 ```
 
 ### Step 3 — run inference (same openenv session or a new window)
@@ -88,9 +88,7 @@ python inference.py
   - `<difficulty>.md` — per-episode markdown log (reference image, all step renders, HTML, rewards, critic text)
   - `images/` — PNGs saved separately (reference, each step's rendered output, critic comparison views)
   - Run: `DEBUG=1 API_BASE_URL=... MODEL_NAME=... /dev/shm/qwen35/bin/python inference.py`
-- `ONE_SHOT` — set to `1` to prepend 1-shot examples to Developer and Critic prompts.
-  Developer example shows the render→adjust→output-HTML loop; Critic examples show when to give feedback vs DONE.
-  Helps smaller models (2B) stay on-format. Toggle off to reduce context usage.
+- `ONE_SHOT` — removed. Zero-shot outperforms few-shot (mean 0.679 vs 0.653) on this model; few-shot was causing early termination from hallucinated items and content contamination from example pages.
 
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
@@ -130,7 +128,7 @@ Global Spearman ρ vs canonical targets = 0.955 (15/15 PASS). Gaps improved: per
 
 ## Reward stability tests
 
-Test suite at `tests/test_reward_stability.py`. Test data in `data/tests/<num>/` (0-14, mapping easy/0-4, medium/0-4, hard/0-4).
+Test suite at `tests/test_rewards.py`. Test data in `data/tests/<num>/` (0-14, mapping easy/0-4, medium/0-4, hard/0-4).
 
 Each case has:
 - `reference.html`, `variants/*.html` (7 quality levels) — committed
@@ -141,26 +139,22 @@ Each case has:
 # First run on a new machine (needs apptainer for Playwright on rmgpu006)
 apptainer exec ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
   'export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
-   /dev/shm/qwen35/bin/python tests/test_reward_stability.py --render'
+   /dev/shm/qwen35/bin/python tests/test_rewards.py --render'
 
 # Score only (fast, uses cached renders — works outside apptainer)
-/dev/shm/qwen35/bin/python tests/test_reward_stability.py
+/dev/shm/qwen35/bin/python tests/test_rewards.py
 
 # Re-render specific cases
-/dev/shm/qwen35/bin/python tests/test_reward_stability.py --render --cases 0,1,5
+/dev/shm/qwen35/bin/python tests/test_rewards.py --render --cases 0,1,5
 
 # After changing reward functions, lock in new baseline
-/dev/shm/qwen35/bin/python tests/test_reward_stability.py --update-expected
+/dev/shm/qwen35/bin/python tests/test_rewards.py --update-expected
 
-# As pytest
-/dev/shm/qwen35/bin/python -m pytest tests/test_reward_stability.py -v
+# As pytest (unit tests only, no Playwright needed)
+/dev/shm/qwen35/bin/python -m pytest tests/test_rewards.py -v -m "not integration"
 ```
 
-Two correlation axes reported:
-- **ρ(quality)** vs `CANONICAL_EXPECTED` in code — measures reward calibration quality
-- **ρ(regress)** vs `expected_scores.json` — regression test, catches reward function drift
-
-Pass criteria: quality ρ ≥ 0.80 per case, blank ≤ 0.05, perfect ≥ 0.80.
+Pass criteria: Spearman ρ ≥ 0.80 per case, global ρ ≥ 0.85, blank ≤ 0.05, perfect ≥ 0.80.
 
 ---
 

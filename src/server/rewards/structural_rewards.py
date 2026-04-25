@@ -4,7 +4,7 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 from typing import Optional
 
-from vcoder.rewards import extract_html
+from openenv.server.rewards import extract_html
 
 
 def _get_tag_sequence(html: str) -> list[str]:

@@ -13,7 +13,7 @@ from typing import Optional
 
 from PIL import Image
 
-from vcoder.rewards import extract_html
+from openenv.server.rewards import extract_html
 
 logger = logging.getLogger(__name__)
 

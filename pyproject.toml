@@ -27,7 +27,7 @@ dependencies = [
 server = "openenv.server.app:main"
 
 [tool.setuptools]
-packages = ["openenv", "openenv.server", "vcoder", "vcoder.data", "vcoder.rewards"]
+packages = ["openenv", "openenv.server", "openenv.server.rewards"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -42,8 +42,6 @@ dev = [
 ]
 
 [tool.setuptools.package-dir]
-"openenv" = "."
-"openenv.server" = "server"
-"vcoder" = "vcoder"
-"vcoder.data" = "vcoder/data"
-"vcoder.rewards" = "vcoder/rewards"
+"openenv"                = "src"
+"openenv.server"         = "src/server"
+"openenv.server.rewards" = "src/server/rewards"

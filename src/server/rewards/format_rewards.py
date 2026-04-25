@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from vcoder.rewards import extract_html
+from openenv.server.rewards import extract_html
 
 
 def format_reward(completions: list[list[dict]]) -> list[float]:
