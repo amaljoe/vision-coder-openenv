@@ -8,10 +8,12 @@ OpenEnv-compatible HTTP API: `reset()` / `step()` / `render()` / `state()`.
 **Round 2** (current `main`): multi-step iterative environment + multi-agent (Developer + Critic) + RL training.
 
 ## Package structure
-- `openenv/` — mapped to repo root (`__init__.py`, `client.py`, `models.py`)
-- `openenv.server` — mapped to `server/` (`app.py`, `environment.py`)
-- `vcoder/` — reward pipeline and data loading
+- `src/` — maps to `openenv` package (`client.py`, `models.py`, `agents.py`, `prompts.py`, `inference.py`, `train.py`, `dataset.py`)
+- `src/server/` — maps to `openenv.server` (`app.py`, `environment.py`)
+- `src/server/rewards/` — maps to `openenv.server.rewards` (one file per reward function)
 - `data/` — bundled synthetic samples (5 per difficulty, ~40KB each)
+- `data/tests/` — reward stability test cases (0-14; committed HTML + expected scores; renders gitignored)
+- `tests/test_rewards.py` — unified test suite (unit + stability + correlation tests)
 
 ## Running on rmgpu006 (cluster)
 
@@ -24,7 +26,7 @@ apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
    /dev/shm/qwen35/bin/python -m vllm.entrypoints.openai.api_server \
    --model ~/models/Qwen3.5-2B --served-model-name qwen35 \
    --tensor-parallel-size 2 --port 8001 --host 0.0.0.0 \
-   --max-model-len 16384 --enable-auto-tool-choice --tool-call-parser hermes' \
+   --max-model-len 65536 --enable-auto-tool-choice --tool-call-parser hermes' \
    2>&1 | tee ~/vllm_qwen35.log
 ```
 **`--enable-auto-tool-choice --tool-call-parser hermes` is mandatory** — without it every Developer call fails with 400 Bad Request and falls back to FALLBACK_HTML.
@@ -35,7 +37,7 @@ apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
 # inside that session:
 export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
 cd ~/workspace/vision-coder-openenv
-/dev/shm/qwen35/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 18080
+/dev/shm/qwen35/bin/python -m uvicorn openenv.server.app:app --host 127.0.0.1 --port 18080
 ```
 
 ### Step 3 — run inference (same openenv session or a new window)
@@ -82,10 +84,77 @@ python inference.py
 - `HF_TOKEN` — Hugging Face token / API key for LLM calls (primary auth key)
 - `MAX_STEPS` — max developer turns per episode (default: 5)
 - `INFERENCE_SERVER_PORT` — env server port (default: 18080)
+- `DEBUG` — set to `1` to enable full episode debug logging. Creates `outputs/<run_id>/` with:
+  - `<difficulty>.md` — per-episode markdown log (reference image, all step renders, HTML, rewards, critic text)
+  - `images/` — PNGs saved separately (reference, each step's rendered output, critic comparison views)
+  - Run: `DEBUG=1 API_BASE_URL=... MODEL_NAME=... /dev/shm/qwen35/bin/python inference.py`
+- `ONE_SHOT` — removed. Zero-shot outperforms few-shot (mean 0.679 vs 0.653) on this model; few-shot was causing early termination from hallucinated items and content contamination from example pages.
 
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
 On rmgpu006: use `/dev/shm/qwen35/bin/python`.
+
+---
+
+## Reward function
+
+Composite of 8 sub-rewards, weighted and normalised to [0, 1]:
+
+| Reward | Weight | What it measures |
+|---|---|---|
+| `format` | 0.5 | Has ` ```html ` fence + `<!DOCTYPE html>` |
+| `validity` | 0.5 | Structural completeness (`html`/`head`/`body`, diverse tags) |
+| `structural` | 0.5 | Tag-sequence similarity + inline-style property coverage |
+| `text_block` | 3.0 | Hungarian-matched text block IoU + text similarity |
+| `position` | 1.0 | Hungarian-matched centroid distance |
+| `color` | 1.5 | Spatial CIEDE2000 on reference non-white pixels |
+| `clip` | 2.5 | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
+| `ssim` | 1.5 | Pixel-level SSIM (skimage, 320×240 RGB) — near-perfect zone sensitivity |
+
+**Weight sum = 11.0.** `format`/`validity`/`structural` reduced (saturate early); `color`/`clip`/`ssim` boosted for continuous near-perfect discrimination.
+
+**Content multiplier:** applied to the weighted total. If reference has content but prediction is nearly blank (< 0.5% non-white pixels at 32×32), multiplier scales linearly from 0 to 1. Ensures blank predictions score 0.0 even if individual sub-rewards are nonzero.
+
+**CLIP renormalisation:** raw cosine ≤ 0.65 → score 0; 1.0 → 1.0. Makes blank pages (raw ~0.45) and unstyled pages (raw ~0.76) meaningfully separated.
+
+**Observed scores on 15 test cases (averages):**
+```
+perfect    0.977    minor_diff  0.883    bad_colors  0.740
+half_styled 0.524   no_layout   0.469    no_style    0.393    blank 0.000
+```
+Global Spearman ρ vs canonical targets = 0.955 (15/15 PASS). Gaps improved: perfect→minor_diff +58%, minor_diff→bad_colors +51% vs old weights.
+
+---
+
+## Reward stability tests
+
+Test suite at `tests/test_rewards.py`. Test data in `data/tests/<num>/` (0-14, mapping easy/0-4, medium/0-4, hard/0-4).
+
+Each case has:
+- `reference.html`, `variants/*.html` (7 quality levels) — committed
+- `expected_scores.json` — per-case baseline scores — committed
+- `renders/` — PNG renders + block JSONs — **gitignored**, auto-generated
+
+```bash
+# First run on a new machine (needs apptainer for Playwright on rmgpu006)
+apptainer exec ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
+  'export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+   /dev/shm/qwen35/bin/python tests/test_rewards.py --render'
+
+# Score only (fast, uses cached renders — works outside apptainer)
+/dev/shm/qwen35/bin/python tests/test_rewards.py
+
+# Re-render specific cases
+/dev/shm/qwen35/bin/python tests/test_rewards.py --render --cases 0,1,5
+
+# After changing reward functions, lock in new baseline
+/dev/shm/qwen35/bin/python tests/test_rewards.py --update-expected
+
+# As pytest (unit tests only, no Playwright needed)
+/dev/shm/qwen35/bin/python -m pytest tests/test_rewards.py -v -m "not integration"
+```
+
+Pass criteria: Spearman ρ ≥ 0.80 per case, global ρ ≥ 0.85, blank ≤ 0.05, perfect ≥ 0.80.
 
 ---
 
@@ -94,13 +163,12 @@ On rmgpu006: use `/dev/shm/qwen35/bin/python`.
 ### Models
 | Role | Inference (eval) | Training |
 |---|---|---|
-| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA |
-| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA, thinking on |
+| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-2B` with LoRA (rank=16) |
+| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | shared 2B base |
 
 - Qwen3.5 is unified vision+text — no separate VL variant needed
-- Native tool calling via Qwen3-Coder XML format — reliable at 4-9B scale
-- 35B-A3B is a MoE that activates 3B params at runtime: fast + high quality
-- 9B fits 40GB A100 with LoRA; use 4B for 24GB GPU
+- 2B fits 2×A100 with LoRA; training completes in ~2h for 20 episodes × 4 rollouts
+- Run 2 uses `--resume-from checkpoints/run2/developer_final` for continued improvement
 
 ### Environment changes (server/)
 - `reset()` returns task + `session_id`; session state lives in-memory per episode
@@ -309,7 +377,118 @@ The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Pla
 
 ---
 
-### 8. Per-step GRPO loses long-horizon signal (Round 2 lesson)
+### 9. `color_reward` false positive on white-background pages
+**What happened:** Original implementation sampled non-white pixels independently from each image, then compared them. A blank white prediction vs a mostly-white reference (e.g. `#f0f2f5` login form) both sampled near-white pixels → CIEDE2000 ≈ 0 → score 0.80–0.96 (false high).
+
+**Fix:** Spatial comparison — resize both images to 128×128, compute per-pixel CIEDE2000, average only over positions where the **reference** is non-white. Blank prediction at those positions gets correct high ΔE. Falls back to full mean when reference is nearly all white (< 2% non-white).
+
+---
+
+### 10. `structural_reward` trivially inflated for inline-style HTML
+**What happened:** All 15 reference HTMLs use inline `style=""` attributes, not CSS classes. The CSS class overlap term always returned 1.0 (neither ref nor pred had classes), making blank pages score 0.50 on structural instead of ~0.25.
+
+**Fix:** When ref has no CSS classes, fall back to inline style **property name** coverage: `len(pred_props ∩ ref_props) / len(ref_props)`. Blank page has 1–2 style props vs 15–25 in ref → score 0.08–0.25. Perfect match (same HTML) → same props → 1.0.
+
+---
+
+### 11. `validity_reward` too generous on blank pages
+**What happened:** `_MIN_DIVERSE_TAGS` was 5. A blank page with 4 tags (`html`, `head`, `title`, `body`) scored 4/5 = 0.80 on diversity, giving total validity ≈ 0.90.
+
+**Fix:** Raised to 8. Blank page now scores 4/8 = 0.50 on diversity → total validity ≈ 0.75.
+
+---
+
+### 12. Per-step GRPO loses long-horizon signal (Round 2 lesson)
 **What happened (design trap):** Applying GRPO independently at each step means Dev_0 only sees `r_0` — the final reward never flows back. Early turns get misguided signal regardless of episode outcome.
 
 **Fix:** Full-episode GRPO — sample K complete trajectories, apply group-relative advantage to all tokens uniformly. Augment with shaped improvement-delta reward (λ=0.2) for early-turn credit assignment. See `train.py`.
+
+---
+
+### 13. Critic DONE-too-early collapses GRPO variance
+**What happened:** The training CRITIC_TRAIN_SYSTEM said "Output DONE if closely matches" (too permissive). The Critic said DONE after step 1 on medium/hard tasks regardless of quality. With all 4 rollouts at 1 step and similar rewards, group std ≈ 0 → advantages ≈ 0 → no gradient signal.
+
+**Fix:** Stricter prompt: "Output DONE only if >90% visual similarity. If ANY section is missing/wrong, list it — do NOT output DONE." Fixes variance collapse for run 2.
+
+---
+
+### 14. MAX_NEW_TOKENS=1024 caused truncated HTML → artificially low training rewards
+**What happened:** Complex HTML pages need 1500–2500 tokens. With MAX_NEW_TOKENS=1024, the model generated truncated HTML missing closing tags and lower sections. Reward was dominated by fmt/validity only (clip=0 because truncated HTML renders blank/broken).
+
+**Fix:** Increased to 2048 in src/train.py. Also helps that 2B model's training rewards (0.23–0.35) were far below vLLM inference rewards (0.6+) — gap partly explained by truncation.
+
+---
+
+### 15. GRPO breakthrough emerges at ep=16 (easy difficulty)
+**What happened:** After 15 episodes of noisy rewards (0.23–0.35 for easy), ep=16 easy jumped to 0.496 mean reward. Individual rollouts reached 0.82 with clip=0.95 (raw cosine ~0.98). The model learned to generate HTML with high visual similarity.
+
+**Why it happened:** GRPO with variance in rollouts — when 1 of 4 rollouts achieves clip=0.90+ while others get 0.00, the group advantage strongly reinforces the high-scoring generation strategy. This is the critical moment when GRPO starts working.
+
+**Observation:** Medium and hard tasks didn't break through in run 1 due to Critic early-termination. Run 2 (with fixed CRITIC_TRAIN_SYSTEM) should show similar breakthrough for all difficulties.
+
+---
+
+### 16. eval_lora.py — comparing trained vs base without vLLM
+**Command (runs after training, outside apptainer):**
+```bash
+export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+/dev/shm/qwen35/bin/python eval_lora.py \
+    --lora-path checkpoints/run2/developer_final \
+    --model ~/models/Qwen3.5-2B \
+    --episodes 2
+```
+Outputs blog-ready markdown table + saves `checkpoints/eval_results.json`.
+
+**Run 1 results** (20/20 episodes, `checkpoints/run2/developer_final`, 2 ep/difficulty, temperature=0.3):
+| Difficulty | Base 2B | Trained 2B | Delta |
+|---|---|---|---|
+| easy | 0.924 | **0.961** | +0.037 |
+| medium | 0.937 | **0.955** | +0.018 |
+| hard | 0.919 | **0.952** | +0.034 |
+| **mean** | 0.927 | **0.956** | **+3.2%** |
+
+> Evaluated on bundled training samples (in-distribution). Relative delta is the meaningful signal.
+
+**Command to restart vLLM with trained LoRA** (in tmux `vllm` session, after killing old process):
+```bash
+LORA_PATH=checkpoints/run2/developer_final LORA_NAME=qwen35-trained bash scripts/vllm.sh 2b
+# Then use MODEL_NAME=qwen35-trained in inference.py for trained model
+```
+
+**Command to start run 2 (resume from run 1 LoRA):**
+```bash
+apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c '
+export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6
+/dev/shm/qwen35/bin/python train.py \
+    --phase developer \
+    --episodes 10 \
+    --k-rollouts 4 \
+    --model ~/models/Qwen3.5-2B \
+    --checkpoint-dir checkpoints/run3 \
+    --resume-from checkpoints/run2/developer_final
+' 2>&1 | tee checkpoints/train_run3.log
+```
+
+---
+
+## Self-Update Protocol
+
+**This file is a living document. Claude must keep it current.**
+
+Whenever you discover something not already recorded here — a new flag, env var, command, lesson, bug, or architectural decision — add it immediately. Do not wait to be asked.
+
+### What to update and where
+
+| Discovery | Where to add |
+|---|---|
+| New `--flag` for vLLM / uvicorn / inference | Relevant step in "Running on rmgpu006" |
+| New environment variable | "Environment variables" section |
+| New bug or production incident | "Challenges faced and lessons learned" (next numbered entry) |
+| New architectural decision | Relevant subsection under "Round 2 architecture" |
+| Change to submission / eval behavior | "Submission workflow" or "How evaluation works" |
+| New debug flag or mode | "Environment variables" section with a note on what it enables |
+
+### Rules
+- Write lessons in past tense under "Challenges faced" — **What happened**, **Fix** format.
+- Keep commands copy-pasteable and tested; update them if they change.
+- After updating this file, commit it: `git add CLAUDE.md && git commit -m "docs: update CLAUDE.md — <one-line summary>"`

@@ -1,9 +1,11 @@
-"""Pytest configuration: add repo root to sys.path so vcoder/ and server/ are importable."""
-import sys
-from pathlib import Path
+import pytest
 
-# Insert repo root so that `vcoder`, `server`, etc. resolve correctly
-# without going through the root __init__.py (which needs openenv.client).
-repo_root = str(Path(__file__).parent.parent)
-if repo_root not in sys.path:
-    sys.path.insert(0, repo_root)
+
+def pytest_addoption(parser):
+    parser.addoption("--force-render", action="store_true", default=False,
+                     help="Re-render all test case PNGs even if they already exist")
+
+
+@pytest.fixture(scope="session")
+def force_render(request):
+    return request.config.getoption("--force-render")

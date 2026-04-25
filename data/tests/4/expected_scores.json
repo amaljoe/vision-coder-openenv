@@ -1,0 +1,9 @@
+{
+  "perfect": 0.9773,
+  "minor_diff": 0.7675,
+  "bad_colors": 0.6234,
+  "half_styled": 0.4836,
+  "no_layout": 0.492,
+  "no_style": 0.281,
+  "blank": 0.0
+}

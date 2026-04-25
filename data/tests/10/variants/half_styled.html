@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dashboard</title></head>
+<body style="margin:0; background:#0f172a; display:flex">
+  <aside style="width:200px; padding:24px 0">
+    <div style="padding:0 20px 24px; font-weight:700; border-bottom:1px solid #334155">⚡ Pulsar</div>
+    <nav style="padding:16px 0">
+      <a style="display:flex; gap:10px; font-size:13px; background:#334155; margin-bottom:2px">📊 Overview</a>
+      <a style="display:flex; gap:10px; font-size:13px; text-decoration:none">🚀 Deployments</a>
+      <a style="display:flex; gap:10px; font-size:13px; text-decoration:none">📁 Projects</a>
+      <a style="display:flex; gap:10px; font-size:13px; text-decoration:none">👥 Team</a>
+      <a style="display:flex; gap:10px; font-size:13px; text-decoration:none">⚙️ Settings</a>
+    </nav>
+  </aside>
+  <main style="flex:1">
+    <div style="display:flex; align-items:center">
+      <h1 style="margin:0">Overview</h1>
+      <button style="padding:9px 18px; color:#fff; border-radius:6px; cursor:pointer">+ New Project</button>
+    </div>
+    <div style="display:grid; gap:16px">
+      <div style="background:#1e293b; padding:20px"><p style="margin:0 0 8px; color:#94a3b8">DEPLOYMENTS</p><p style="margin:0; font-weight:700">1,284</p><p style="margin:4px 0 0; color:#34d399">↑ 12% this week</p></div>
+      <div style="background:#1e293b; padding:20px"><p style="margin:0 0 8px; color:#94a3b8">SUCCESS RATE</p><p style="margin:0; font-weight:700">99.2%</p><p style="margin:4px 0 0; color:#34d399">↑ 0.3% this week</p></div>
+      <div style="background:#1e293b; padding:20px"><p style="margin:0 0 8px; color:#94a3b8">AVG BUILD TIME</p><p style="margin:0; font-weight:700">28s</p><p style="margin:4px 0 0; color:#fb923c">↓ 3s slower</p></div>
+      <div style="background:#1e293b; padding:20px"><p style="margin:0 0 8px; color:#94a3b8">ACTIVE PROJECTS</p><p style="margin:0; font-weight:700">47</p><p style="margin:4px 0 0; color:#34d399">↑ 3 new</p></div>
+    </div>
+    <div style="background:#1e293b; padding:24px">
+      <h2 style="margin:0 0 20px">Recent Deployments</h2>
+      <table style="width:100%; font-size:13px">
+        <thead><tr style="color:#64748b"><th style="text-align:left">Project</th><th style="text-align:left">Branch</th><th style="text-align:left">Status</th><th style="text-align:left">Time</th></tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #1e293b"><td style="padding:12px 0">api-service</td><td style="padding:12px 0">main</td><td style="padding:12px 0"><span style="background:#dcfce7; padding:3px 10px; font-size:11px">✓ Success</span></td><td style="padding:12px 0">2 min ago</td></tr>
+          <tr style="border-bottom:1px solid #1e293b"><td style="padding:12px 0">web-frontend</td><td style="padding:12px 0">feat/auth</td><td style="padding:12px 0"><span style="background:#fef3c7; padding:3px 10px; font-size:11px">⟳ Building</span></td><td style="padding:12px 0">5 min ago</td></tr>
+          <tr><td style="padding:12px 0">ml-pipeline</td><td style="padding:12px 0">main</td><td style="padding:12px 0"><span style="background:#fee2e2; padding:3px 10px; font-size:11px">✗ Failed</span></td><td style="padding:12px 0">18 min ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

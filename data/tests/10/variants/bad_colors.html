@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dashboard</title></head>
+<body style="margin:0;font-family:sans-serif;background:#f0e8d5;color:#1d170f;display:flex;min-height:100vh;">
+  <aside style="width:200px;background:#e1d6c4;padding:24px 0;flex-shrink:0;">
+    <div style="padding:0 20px 24px;font-size:18px;font-weight:700;color:#fff;border-bottom:1px solid #ccbeaa;">⚡ Pulsar</div>
+    <nav style="padding:16px 0;">
+      <a style="display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:#fff;background:#ccbeaa;text-decoration:none;margin-bottom:2px;">📊 Overview</a>
+      <a style="display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:#6b5c47;text-decoration:none;margin-bottom:2px;">🚀 Deployments</a>
+      <a style="display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:#6b5c47;text-decoration:none;margin-bottom:2px;">📁 Projects</a>
+      <a style="display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:#6b5c47;text-decoration:none;margin-bottom:2px;">👥 Team</a>
+      <a style="display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:#6b5c47;text-decoration:none;">⚙️ Settings</a>
+    </nav>
+  </aside>
+  <main style="flex:1;padding:32px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;">
+      <h1 style="margin:0;font-size:22px;">Overview</h1>
+      <button style="padding:9px 18px;background:#b0b91a;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;">+ New Project</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;">
+      <div style="background:#e1d6c4;border-radius:10px;padding:20px;"><p style="margin:0 0 8px;font-size:12px;color:#6b5c47;">DEPLOYMENTS</p><p style="margin:0;font-size:28px;font-weight:700;">1,284</p><p style="margin:4px 0 0;font-size:12px;color:#cb2c66;">↑ 12% this week</p></div>
+      <div style="background:#e1d6c4;border-radius:10px;padding:20px;"><p style="margin:0 0 8px;font-size:12px;color:#6b5c47;">SUCCESS RATE</p><p style="margin:0;font-size:28px;font-weight:700;">99.2%</p><p style="margin:4px 0 0;font-size:12px;color:#cb2c66;">↑ 0.3% this week</p></div>
+      <div style="background:#e1d6c4;border-radius:10px;padding:20px;"><p style="margin:0 0 8px;font-size:12px;color:#6b5c47;">AVG BUILD TIME</p><p style="margin:0;font-size:28px;font-weight:700;">28s</p><p style="margin:4px 0 0;font-size:12px;color:#046dc3;">↓ 3s slower</p></div>
+      <div style="background:#e1d6c4;border-radius:10px;padding:20px;"><p style="margin:0 0 8px;font-size:12px;color:#6b5c47;">ACTIVE PROJECTS</p><p style="margin:0;font-size:28px;font-weight:700;">47</p><p style="margin:4px 0 0;font-size:12px;color:#cb2c66;">↑ 3 new</p></div>
+    </div>
+    <div style="background:#e1d6c4;border-radius:10px;padding:24px;">
+      <h2 style="margin:0 0 20px;font-size:16px;">Recent Deployments</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="color:#9b8b74;border-bottom:1px solid #ccbeaa;"><th style="text-align:left;padding:8px 0;">Project</th><th style="text-align:left;padding:8px 0;">Branch</th><th style="text-align:left;padding:8px 0;">Status</th><th style="text-align:left;padding:8px 0;">Time</th></tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #e1d6c4;"><td style="padding:12px 0;color:#1d170f;">api-service</td><td style="padding:12px 0;color:#6b5c47;">main</td><td style="padding:12px 0;"><span style="background:#230318;color:#e95cb5;padding:3px 10px;border-radius:20px;font-size:11px;">✓ Success</span></td><td style="padding:12px 0;color:#6b5c47;">2 min ago</td></tr>
+          <tr style="border-bottom:1px solid #e1d6c4;"><td style="padding:12px 0;color:#1d170f;">web-frontend</td><td style="padding:12px 0;color:#6b5c47;">feat/auth</td><td style="padding:12px 0;"><span style="background:#010c38;color:#2688f9;padding:3px 10px;border-radius:20px;font-size:11px;">⟳ Building</span></td><td style="padding:12px 0;color:#6b5c47;">5 min ago</td></tr>
+          <tr><td style="padding:12px 0;color:#1d170f;">ml-pipeline</td><td style="padding:12px 0;color:#6b5c47;">main</td><td style="padding:12px 0;"><span style="background:#011d1d;color:#23d9d9;padding:3px 10px;border-radius:20px;font-size:11px;">✗ Failed</span></td><td style="padding:12px 0;color:#6b5c47;">18 min ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>
