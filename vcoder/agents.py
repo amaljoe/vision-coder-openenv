@@ -34,6 +34,11 @@ ONE_SHOT = bool(os.environ.get("ONE_SHOT", ""))
 DEVELOPER_SYSTEM = (
     "You are a UI-to-code expert. Given a reference screenshot of a web page, "
     "generate complete HTML with inline CSS that reproduces the layout as accurately as possible.\n\n"
+    "Critical layout rules:\n"
+    "- Always use `* { box-sizing: border-box; margin: 0; padding: 0; }` reset.\n"
+    "- Page and all top-level sections must be full-width: `width: 100%; min-height: 100vh`.\n"
+    "- Never center-constrain the overall page — only constrain inner content containers if the reference does.\n"
+    "- Match background colors, section colors, and typography as precisely as possible.\n\n"
     "Output ONLY the raw HTML code starting with <!DOCTYPE html>. "
     "No explanations, no markdown fences, no tool calls — just the HTML."
 )
@@ -309,17 +314,27 @@ class TodoList:
 
         [+] items (newly discovered) are always kept pending — they can't be
         resolved the same step they were first identified.
+        Duplicate items (same text) are silently dropped.
         """
         result = cls()
+        seen: set = set()
         for line in text.split("\n"):
             line = line.strip()
             if line.startswith("[✓]"):
-                result.items.append(TodoItem(text=line[3:].strip(), done=True))
+                item_text = line[3:].strip()
+                done = True
             elif line.startswith("[ ]"):
-                result.items.append(TodoItem(text=line[3:].strip(), done=False))
+                item_text = line[3:].strip()
+                done = False
             elif line.startswith("[+]"):
-                # Newly found — always pending regardless of what the model wrote
-                result.items.append(TodoItem(text=line[3:].strip(), done=False))
+                item_text = line[3:].strip()
+                done = False
+            else:
+                continue
+            key = item_text.lower()
+            if key not in seen:
+                seen.add(key)
+                result.items.append(TodoItem(text=item_text, done=done))
         return result
 
     @classmethod
