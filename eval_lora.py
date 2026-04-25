@@ -193,6 +193,30 @@ def main() -> None:
         symbol = "+" if delta >= 0 else ""
         print(f"{diff:<12} {b:>8.4f} {t:>10.4f} {symbol}{delta:>7.4f} {symbol}{pct:>6.1f}%")
 
+    print("\n# Blog-ready markdown table:")
+    print("| Difficulty | Base 2B | Trained 2B (GRPO) | Delta |")
+    print("|---|---|---|---|")
+    for diff in DIFFICULTIES + ["**mean**"]:
+        key = diff.strip("*")
+        b = base_results.get(key, 0)
+        t = trained_results.get(key, 0)
+        delta = t - b
+        symbol = "+" if delta >= 0 else ""
+        print(f"| {diff} | {b:.3f} | **{t:.3f}** | {symbol}{delta:.3f} |")
+
+    # Save results JSON for blog update
+    import json
+    results = {
+        "base": base_results,
+        "trained": trained_results,
+        "lora_path": str(lora_path),
+        "model": args.model,
+        "episodes": args.episodes,
+    }
+    out = Path("checkpoints/eval_results.json")
+    out.write_text(json.dumps(results, indent=2))
+    print(f"\nResults saved to {out}")
+
     env_client.close()
 
 
