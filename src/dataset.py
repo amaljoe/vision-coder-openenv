@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 _DATASET_CACHE: dict = {}
-_DATA_DIR = Path(__file__).parent.parent.parent / "data"
+_DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def _load_bundled(difficulty: Optional[str]) -> list[dict] | None:

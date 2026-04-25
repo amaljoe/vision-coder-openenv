@@ -101,6 +101,14 @@ def state() -> State:
     return _env.state
 
 
+@app.post("/reset_dataset", status_code=200)
+def reset_dataset() -> dict:
+    """Reset dataset indices to 0 for all difficulties. Used by benchmarks to replay the same samples."""
+    _env._dataset_indices = {"easy": 0, "medium": 0, "hard": 0, "mixed": 0}
+    logger.info("Dataset indices reset to 0.")
+    return {"status": "ok"}
+
+
 @app.delete("/close", status_code=204)
 def close() -> None:
     """Signal end of session (no-op for single-instance server)."""

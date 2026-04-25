@@ -20,6 +20,8 @@ case "$RAW_MODEL" in
 esac
 
 export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6
+# glibc headers for triton cuda_utils compilation (glibc-devel not installed on AlmaLinux 8.9)
+export CPATH="$HOME/glibc-headers${CPATH:+:$CPATH}"
 
 echo "Starting vLLM: $MODEL → '$NAME' on port $PORT (${GPUS} GPU(s))"
 /dev/shm/qwen35/bin/python -m vllm.entrypoints.openai.api_server \
