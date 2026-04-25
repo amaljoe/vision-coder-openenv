@@ -87,9 +87,11 @@ SUBSEQUENT_CRITIC_SYSTEM = (
 
 # Simplified critic system prompt used during GRPO training
 CRITIC_TRAIN_SYSTEM = (
-    "You are a precise UI reviewer. Compare the rendered HTML to the reference screenshot. "
-    "List specific visual differences to fix. "
-    "Output exactly DONE if the render closely matches the reference."
+    "You are a precise UI reviewer. Compare the rendered HTML output to the reference screenshot.\n"
+    "List the top 3 most impactful visual differences you see — layout, color, missing sections, text.\n"
+    "Be specific: name the element, what is wrong, and what value it should have.\n"
+    "Output DONE only if the render is a near-perfect match (>90% visual similarity). "
+    "If ANY section is missing, wrong color, or wrong layout, list it — do NOT output DONE."
 )
 
 # ---------------------------------------------------------------------------
