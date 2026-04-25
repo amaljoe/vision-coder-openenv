@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Docs</title></head>
+<body style="margin:0; background:#fff; display:flex; min-height:100vh">
+  <nav style="border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; position:sticky; z-index:10">
+    <div style="display:flex; gap:32px">
+      <span style="font-weight:700; color:#4f46e5">Docs</span>
+      <div style="display:flex; font-size:14px">
+        <a href="#" style="color:#4f46e5; font-weight:500">Guide</a>
+        <a href="#" style="color:#64748b">API Reference</a>
+        <a href="#" style="color:#64748b">Examples</a>
+      </div>
+    </div>
+    <div style="background:#f1f5f9; padding:7px 14px; color:#94a3b8">🔍 Search docs...</div>
+  </nav>
+  <div style="display:flex; max-width:1100px; padding:32px 20px; width:100%">
+    <aside style="width:200px">
+      <p style="font-size:11px; text-transform:uppercase; color:#94a3b8">Getting Started</p>
+      <nav style="font-size:14px">
+        <a style="display:block; color:#4f46e5; text-decoration:none">Introduction</a>
+        <a style="display:block; color:#64748b">Installation</a>
+        <a style="display:block; color:#64748b">Quick Start</a>
+      </nav>
+      <p style="font-size:11px; text-transform:uppercase; color:#94a3b8">Core Concepts</p>
+      <nav style="font-size:14px">
+        <a style="display:block; color:#64748b">Environments</a>
+        <a style="display:block; color:#64748b">Actions & Obs</a>
+        <a style="display:block; color:#64748b">Rewards</a>
+      </nav>
+      <p style="font-size:11px; text-transform:uppercase; color:#94a3b8">API</p>
+      <nav style="font-size:14px">
+        <a style="display:block; color:#64748b">POST /reset</a>
+        <a style="display:block; color:#64748b">POST /step</a>
+        <a style="display:block; color:#64748b">GET /state</a>
+      </nav>
+    </aside>
+    <main style="flex:1">
+      <div style="display:flex; font-size:12px; margin-bottom:24px">
+        <span>Docs</span><span>›</span><span>Getting Started</span><span>›</span><span style="color:#4f46e5">Introduction</span>
+      </div>
+      <h1 style="font-size:30px">Introduction</h1>
+      <p style="color:#64748b; margin:0 0 28px">OpenEnv is a standard HTTP interface for building reinforcement learning environments. It provides a simple REST API that any agent can interact with, regardless of programming language.</p>
+      <div style="background:#f8fafc; border-radius:8px; margin-bottom:28px">
+        <p style="margin:0 0 10px; font-weight:600">INSTALLATION</p>
+        <code style="font-family:monospace; color:#4f46e5">pip install openenv-core</code>
+      </div>
+      <h2 style="font-size:20px">How it works</h2>
+      <p style="color:#475569; margin-bottom:16px">Each environment exposes three endpoints: <code style="background:#f1f5f9; border-radius:4px">/reset</code> to start an episode, <code style="background:#f1f5f9; border-radius:4px">/step</code> to submit an action, and <code style="background:#f1f5f9; border-radius:4px">/state</code> to inspect current state.</p>
+      <div style="display:flex; margin-top:32px">
+        <button style="padding:10px 20px; color:#fff; border-radius:6px">Next: Installation →</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

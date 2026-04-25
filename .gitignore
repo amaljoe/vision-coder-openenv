@@ -10,5 +10,8 @@ outputs/
 venv/
 dist/
 build/
+# Test case renders (gitignored, regenerated with --render)
+data/tests/*/renders/
+data/tests/last_run_report.json
 # Bundled dataset (tracked intentionally — use git add -f data/)
 

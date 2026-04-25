@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dashboard</title></head>
+<body>
+  <aside>
+    <div>⚡ Pulsar</div>
+    <nav>
+      <a>📊 Overview</a>
+      <a>🚀 Deployments</a>
+      <a>📁 Projects</a>
+      <a>👥 Team</a>
+      <a>⚙️ Settings</a>
+    </nav>
+  </aside>
+  <main>
+    <div>
+      <h1>Overview</h1>
+      <button>+ New Project</button>
+    </div>
+    <div>
+      <div><p>DEPLOYMENTS</p><p>1,284</p><p>↑ 12% this week</p></div>
+      <div><p>SUCCESS RATE</p><p>99.2%</p><p>↑ 0.3% this week</p></div>
+      <div><p>AVG BUILD TIME</p><p>28s</p><p>↓ 3s slower</p></div>
+      <div><p>ACTIVE PROJECTS</p><p>47</p><p>↑ 3 new</p></div>
+    </div>
+    <div>
+      <h2>Recent Deployments</h2>
+      <table>
+        <thead><tr><th>Project</th><th>Branch</th><th>Status</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td>api-service</td><td>main</td><td><span>✓ Success</span></td><td>2 min ago</td></tr>
+          <tr><td>web-frontend</td><td>feat/auth</td><td><span>⟳ Building</span></td><td>5 min ago</td></tr>
+          <tr><td>ml-pipeline</td><td>main</td><td><span>✗ Failed</span></td><td>18 min ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

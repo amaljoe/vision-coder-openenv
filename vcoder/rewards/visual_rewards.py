@@ -56,8 +56,14 @@ def _render_html(html: str, width: int = 640, height: int = 480) -> Optional[Ima
         return None
 
 
+_CLIP_RENORM_THRESHOLD = 0.65  # raw cosine similarity ≤ this → score 0; 1.0 → 1.0
+# Renormalisation makes the metric stricter: only pages visually similar to reference
+# score meaningfully. Blank pages (raw ~0.45) and unstyled pages (raw ~0.75) get pushed
+# toward 0, while near-perfect matches (raw ~1.0) remain high.
+
+
 def _clip_similarity(img_a: Image.Image, img_b: Image.Image) -> float:
-    """Compute CLIP image-embedding cosine similarity in [0, 1]."""
+    """Compute CLIP image-embedding cosine similarity, renormalised to [0, 1]."""
     import torch
     model, processor = _get_clip()
     inputs = processor(images=[img_a, img_b], return_tensors="pt")
@@ -66,8 +72,10 @@ def _clip_similarity(img_a: Image.Image, img_b: Image.Image) -> float:
     # transformers v5 returns a dataclass; v4 returns a plain tensor
     features = out.pooler_output if hasattr(out, "pooler_output") else out
     features = features / features.norm(dim=-1, keepdim=True)
-    score = (features[0] @ features[1]).item()
-    return float(max(0.0, min(1.0, score)))
+    raw = (features[0] @ features[1]).item()
+    # Renormalise: threshold → 0, 1.0 → 1.0
+    scale = 1.0 - _CLIP_RENORM_THRESHOLD
+    return float(max(0.0, min(1.0, (raw - _CLIP_RENORM_THRESHOLD) / scale)))
 
 
 def _pil_similarity(img_a: Image.Image, img_b: Image.Image, size: tuple = (128, 128)) -> float:

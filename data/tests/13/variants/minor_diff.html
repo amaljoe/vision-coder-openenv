@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Docs</title></head>
+<body style="margin:0;font-family:sans-serif;background:#fff;color:#1e293b;display:flex;flex-direction:column;min-height:100vh;">
+  <nav style="border-bottom:1px solid #e2e8f0;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;background:#fff;position:sticky;top:0;z-index:10;">
+    <div style="display:flex;align-items:center;gap:32px;">
+      <span style="font-weight:700;font-size:13px;color:#4f46e5;">Docs</span>
+      <div style="display:flex;gap:20px;font-size:10px;color:#64748b;">
+        <a href="#" style="color:#4f46e5;text-decoration:none;font-weight:500;">Guide</a>
+        <a href="#" style="color:#64748b;text-decoration:none;">API Reference</a>
+        <a href="#" style="color:#64748b;text-decoration:none;">Examples</a>
+      </div>
+    </div>
+    <div style="background:#888888;border-radius:6px;padding:7px 14px;font-size:13px;color:#94a3b8;width:200px;">🔍 Search docs...</div>
+  </nav>
+  <div style="display:flex;flex:1;max-width:1100px;margin:0 auto;padding:32px 20px;gap:40px;width:100%;box-sizing:border-box;">
+    <aside style="width:200px;flex-shrink:0;">
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px;">Getting Started</p>
+      <nav style="font-size:14px;margin-bottom:24px;">
+        <a style="display:block;padding:5px 0;color:#4f46e5;font-weight:600;text-decoration:none;">Introduction</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">Installation</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">Quick Start</a>
+      </nav>
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px;">Core Concepts</p>
+      <nav style="font-size:14px;margin-bottom:24px;">
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">Environments</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">Actions & Obs</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">Rewards</a>
+      </nav>
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;margin:0 0 12px;">API</p>
+      <nav style="font-size:14px;">
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">POST /reset</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">POST /step</a>
+        <a style="display:block;padding:5px 0;color:#64748b;text-decoration:none;">GET /state</a>
+      </nav>
+    </aside>
+    <main style="flex:1;min-width:0;">
+      <div style="display:flex;gap:8px;font-size:12px;color:#94a3b8;margin-bottom:24px;">
+        <span>Docs</span><span>›</span><span>Getting Started</span><span>›</span><span style="color:#4f46e5;">Introduction</span>
+      </div>
+      <h1 style="font-size:30px;margin:0 0 12px;">Introduction</h1>
+      <p style="color:#64748b;font-size:15px;margin:0 0 28px;line-height:1.7;">OpenEnv is a standard HTTP interface for building reinforcement learning environments. It provides a simple REST API that any agent can interact with, regardless of programming language.</p>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:28px;">
+        <p style="margin:0 0 10px;font-size:13px;font-weight:600;color:#64748b;">INSTALLATION</p>
+        <code style="font-family:monospace;font-size:13px;color:#4f46e5;">pip install openenv-core</code>
+      </div>
+      <h2 style="font-size:20px;margin:0 0 14px;">How it works</h2>
+      <p style="color:#475569;line-height:1.8;margin-bottom:16px;">Each environment exposes three endpoints: <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px;">/reset</code> to start an episode, <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px;">/step</code> to submit an action, and <code style="background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px;">/state</code> to inspect current state.</p>
+      <div style="display:flex;gap:12px;margin-top:32px;font-size:14px;">
+        <button style="padding:10px 20px;background:#4f46e5;color:#fff;border:none;border-radius:6px;cursor:pointer;">Next: Installation →</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
