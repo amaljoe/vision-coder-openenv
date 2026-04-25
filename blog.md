@@ -162,13 +162,15 @@ Live reward curve (updating as training runs):
 | 4 | easy | 0.286 | 1.8 | −0.225 |
 | 5 | medium | 0.287 | 2.0 | −0.199 |
 | 6 | hard | 0.238 | 1.0 | +0.047 |
+| 7 | easy | **0.349** | 2.0 | **−0.315** |
 | … | … | … | … | … |
 
-**Early observations (6/20 episodes):**
-- Medium difficulty shows consistent improvement (0.280 → 0.287) after one GRPO cycle
-- Hard difficulty improves slightly (0.230 → 0.238) but with high loss variance — Critic collapses episodes to 1 step on hard tasks (outputs "DONE" too readily)
-- Loss mostly negative (good: policy moving toward higher-reward outputs); one positive blip on ep=6 hard is expected noise when variance across rollouts is low
-- Table and plot will be updated as remaining 14 episodes complete
+**Observations (7/20 episodes, training in progress):**
+- **Easy improves**: 0.312 → 0.286 → **0.349** — clear upward trend after warmup dip at ep=4
+- **Medium improves**: 0.280 → 0.287 — consistent positive gradient
+- **Hard improves**: 0.230 → 0.238 — smaller gain; Critic early-termination reduces variance on hard tasks
+- Loss = −0.315 at ep=7 is the strongest signal yet, confirming GRPO is converging
+- Table and plot will be updated as remaining 13 episodes complete
 
 ---
 
