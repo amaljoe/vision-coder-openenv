@@ -181,6 +181,7 @@ FIRST_CRITIC_ONESHOT_MESSAGES = [
             "When you do your real review, analyse ONLY what you see in the actual images provided.]\n\n"
             "Reference: <image showing Page-Type-A>. "
             "Current render: <image showing partial attempt at Page-Type-A with several differences>.\n"
+            "HTML source: `<div class=\"products\">...</div><nav>...</nav>`\n"
             "(First review — no previous TODO list.)"
         ),
     },
@@ -188,13 +189,12 @@ FIRST_CRITIC_ONESHOT_MESSAGES = [
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[+] HIGH | LAYOUT — SECTION-A fills only ~40% viewport width; reference is full-width\n"
-            "[+] HIGH | STRUCTURE — SECTION-B is completely absent from render\n"
-            "[+] HIGH | STRUCTURE — ELEMENT-C is missing; reference shows it prominently\n"
-            "[+] MEDIUM | COLOR — AREA-D background is white #ffffff; reference shows ~#1e293b (dark)\n"
-            "[+] MEDIUM | COLOR — BUTTON-E colour is grey; reference shows green ~#22c55e\n"
-            "[+] LOW | TYPOGRAPHY — body text ~10px; reference shows ~16px\n"
-            "[+] LOW | SPACING — no gap between SECTION-F and SECTION-G; reference shows ~40px"
+            "[+] HIGH | LAYOUT — SECTION-A fills only ~40% viewport width; reference is full-width → FIX: `.section-a { width: 100%; }`\n"
+            "[+] HIGH | STRUCTURE — SECTION-B is completely absent from render → FIX: add `<section class=\"section-b\" style=\"padding:60px 40px;\">...</section>` after SECTION-A\n"
+            "[+] MEDIUM | COLOR — AREA-D background is white #ffffff; reference shows ~#1e293b (dark) → FIX: `.area-d { background-color: #1e293b; }`\n"
+            "[+] MEDIUM | COLOR — BUTTON-E colour is grey; reference shows green ~#22c55e → FIX: `.button-e { background-color: #22c55e; color: #fff; }`\n"
+            "[+] LOW | TYPOGRAPHY — body text ~10px; reference shows ~16px → FIX: `body { font-size: 16px; }`\n"
+            "[+] LOW | SPACING — no gap between SECTION-F and SECTION-G; reference shows ~40px → FIX: `.section-f { margin-bottom: 40px; }`"
         ),
     },
 ]
