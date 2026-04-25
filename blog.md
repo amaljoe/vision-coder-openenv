@@ -169,13 +169,16 @@ Live reward curve (updating as training runs):
 | 11 | medium | 0.239 | 1.0 | −0.007 |
 | 12 | hard | **0.256** | 1.5 | +0.207 |
 | 13 | easy | 0.308 | 1.2 | −0.151 |
+| 14 | medium | 0.225 | 1.2 | +0.142 |
+| 15 | hard | 0.238 | 1.0 | −0.012 |
 | … | … | … | … | … |
 
-**Observations (13/20 episodes, training in progress):**
-- **Easy trend**: 0.312 → 0.286 → **0.349** → 0.283 → 0.308 — peak at ep=7; oscillates but stays above baseline after ep=10
-- **Medium trend**: 0.280 → 0.287 → 0.228 → 0.239 — oscillates; Critic early-termination (mean_steps=1.0) collapses gradient variance for medium tasks
-- **Hard trend**: 0.230 → 0.238 → 0.245 → **0.256** — most consistent improvement; 2-step rollouts give better GRPO signal than 1-step
-- Table and plot will be updated as remaining 7 episodes complete
+**Observations (15/20 episodes, training in progress):**
+- **Easy trend**: 0.312 → 0.286 → **0.349** → 0.283 → 0.308 — peak at ep=7; oscillates but stays near baseline; ep=7 weights will be used for evaluation
+- **Medium trend**: 0.280 → 0.287 → 0.228 → 0.239 → 0.225 — consistently noisy; Critic early-termination (mean_steps=1.0) collapses GRPO gradient variance
+- **Hard trend**: 0.230 → 0.238 → 0.245 → **0.256** → 0.238 — peak at ep=12; mean_steps=1.0 at ep=15 collapses signal (same issue as medium)
+- **Root cause**: old Critic training prompt was too permissive (DONE after 1 step); fixed for run 2 which resumes from run 1's best weights
+- Table and plot will be updated as remaining 5 episodes complete
 
 ---
 
