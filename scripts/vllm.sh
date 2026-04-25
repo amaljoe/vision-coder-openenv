@@ -4,12 +4,15 @@
 #   model: 0.8b | 2b | 9b | <local-path> | <hf-model-id>  (default: 2b)
 #   served-name: name clients use in API calls               (default: qwen35)
 # Env overrides: PORT=8001 GPUS=2 MAX_LEN=65536
+# LoRA: LORA_PATH=checkpoints/run2/developer_final LORA_NAME=qwen35-trained
 set -euo pipefail
 
 RAW_MODEL="${1:-2b}"
 NAME="${2:-qwen35}"
 PORT="${PORT:-8001}"
 MAX_LEN="${MAX_LEN:-65536}"
+LORA_PATH="${LORA_PATH:-}"
+LORA_NAME="${LORA_NAME:-${NAME}-trained}"
 
 ENFORCE_EAGER=""
 case "$RAW_MODEL" in
@@ -23,6 +26,12 @@ export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6
 # glibc headers for triton cuda_utils compilation (glibc-devel not installed on AlmaLinux 8.9)
 export CPATH="$HOME/glibc-headers${CPATH:+:$CPATH}"
 
+LORA_FLAGS=""
+if [ -n "$LORA_PATH" ]; then
+    LORA_FLAGS="--enable-lora --lora-modules ${LORA_NAME}=${LORA_PATH}"
+    echo "LoRA: $LORA_NAME → $LORA_PATH"
+fi
+
 echo "Starting vLLM: $MODEL → '$NAME' on port $PORT (${GPUS} GPU(s))"
 /dev/shm/qwen35/bin/python -m vllm.entrypoints.openai.api_server \
     --model "$MODEL" \
@@ -33,4 +42,5 @@ echo "Starting vLLM: $MODEL → '$NAME' on port $PORT (${GPUS} GPU(s))"
     --max-model-len "$MAX_LEN" \
     --enable-auto-tool-choice \
     --tool-call-parser hermes \
-    $ENFORCE_EAGER
+    $ENFORCE_EAGER \
+    $LORA_FLAGS
