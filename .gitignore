@@ -5,7 +5,8 @@ __pycache__/
 .env
 debug_renders/
 outputs/
-.claude/
+.claude/*
+!.claude/commands/
 .venv/
 venv/
 dist/
