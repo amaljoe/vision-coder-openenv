@@ -37,14 +37,18 @@ def _get_clip():
 
 
 def _render_html(html: str, width: int = 640, height: int = 480) -> Optional[Image.Image]:
-    """Render HTML to a PIL Image using Playwright headless Chromium."""
+    """Render HTML to a PIL Image using Playwright headless Chromium.
+
+    Uses full_page=True so the complete page is captured (no viewport cropping).
+    The viewport width is fixed; height auto-expands to fit content.
+    """
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser = p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height})
             page.set_content(html, wait_until="networkidle")
-            png_bytes = page.screenshot(full_page=False)
+            png_bytes = page.screenshot(full_page=True)
             browser.close()
         return Image.open(io.BytesIO(png_bytes)).convert("RGB")
     except Exception as exc:

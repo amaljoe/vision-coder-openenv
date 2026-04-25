@@ -24,7 +24,7 @@ apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c \
    /dev/shm/qwen35/bin/python -m vllm.entrypoints.openai.api_server \
    --model ~/models/Qwen3.5-2B --served-model-name qwen35 \
    --tensor-parallel-size 2 --port 8001 --host 0.0.0.0 \
-   --max-model-len 16384 --enable-auto-tool-choice --tool-call-parser hermes' \
+   --max-model-len 65536 --enable-auto-tool-choice --tool-call-parser hermes' \
    2>&1 | tee ~/vllm_qwen35.log
 ```
 **`--enable-auto-tool-choice --tool-call-parser hermes` is mandatory** — without it every Developer call fails with 400 Bad Request and falls back to FALLBACK_HTML.
@@ -82,6 +82,13 @@ python inference.py
 - `HF_TOKEN` — Hugging Face token / API key for LLM calls (primary auth key)
 - `MAX_STEPS` — max developer turns per episode (default: 5)
 - `INFERENCE_SERVER_PORT` — env server port (default: 18080)
+- `DEBUG` — set to `1` to enable full episode debug logging. Creates `outputs/<run_id>/` with:
+  - `<difficulty>.md` — per-episode markdown log (reference image, all step renders, HTML, rewards, critic text)
+  - `images/` — PNGs saved separately (reference, each step's rendered output, critic comparison views)
+  - Run: `DEBUG=1 API_BASE_URL=... MODEL_NAME=... /dev/shm/qwen35/bin/python inference.py`
+- `ONE_SHOT` — set to `1` to prepend 1-shot examples to Developer and Critic prompts.
+  Developer example shows the render→adjust→output-HTML loop; Critic examples show when to give feedback vs DONE.
+  Helps smaller models (2B) stay on-format. Toggle off to reduce context usage.
 
 ## Python version
 Use `python3.13` locally (pip maps to python3.13 here, not `python3`).
@@ -313,3 +320,27 @@ The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Pla
 **What happened (design trap):** Applying GRPO independently at each step means Dev_0 only sees `r_0` — the final reward never flows back. Early turns get misguided signal regardless of episode outcome.
 
 **Fix:** Full-episode GRPO — sample K complete trajectories, apply group-relative advantage to all tokens uniformly. Augment with shaped improvement-delta reward (λ=0.2) for early-turn credit assignment. See `train.py`.
+
+---
+
+## Self-Update Protocol
+
+**This file is a living document. Claude must keep it current.**
+
+Whenever you discover something not already recorded here — a new flag, env var, command, lesson, bug, or architectural decision — add it immediately. Do not wait to be asked.
+
+### What to update and where
+
+| Discovery | Where to add |
+|---|---|
+| New `--flag` for vLLM / uvicorn / inference | Relevant step in "Running on rmgpu006" |
+| New environment variable | "Environment variables" section |
+| New bug or production incident | "Challenges faced and lessons learned" (next numbered entry) |
+| New architectural decision | Relevant subsection under "Round 2 architecture" |
+| Change to submission / eval behavior | "Submission workflow" or "How evaluation works" |
+| New debug flag or mode | "Environment variables" section with a note on what it enables |
+
+### Rules
+- Write lessons in past tense under "Challenges faced" — **What happened**, **Fix** format.
+- Keep commands copy-pasteable and tested; update them if they change.
+- After updating this file, commit it: `git add CLAUDE.md && git commit -m "docs: update CLAUDE.md — <one-line summary>"`

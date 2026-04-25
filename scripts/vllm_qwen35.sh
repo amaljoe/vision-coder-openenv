@@ -26,4 +26,4 @@ python -m vllm.entrypoints.openai.api_server \
     --host 0.0.0.0 \
     --enable-auto-tool-choice \
     --tool-call-parser hermes \
-    --max-model-len 32768
+    --max-model-len 65536
