@@ -163,13 +163,12 @@ Pass criteria: Spearman ρ ≥ 0.80 per case, global ρ ≥ 0.85, blank ≤ 0.05
 ### Models
 | Role | Inference (eval) | Training |
 |---|---|---|
-| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA |
-| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-9B` with LoRA, thinking on |
+| Developer | `Qwen/Qwen3.5-35B-A3B` via HF router | `Qwen/Qwen3.5-2B` with LoRA (rank=16) |
+| Critic | `Qwen/Qwen3.5-35B-A3B` via HF router | shared 2B base |
 
 - Qwen3.5 is unified vision+text — no separate VL variant needed
-- Native tool calling via Qwen3-Coder XML format — reliable at 4-9B scale
-- 35B-A3B is a MoE that activates 3B params at runtime: fast + high quality
-- 9B fits 40GB A100 with LoRA; use 4B for 24GB GPU
+- 2B fits 2×A100 with LoRA; training completes in ~2h for 20 episodes × 4 rollouts
+- Run 2 uses `--resume-from checkpoints/run2/developer_final` for continued improvement
 
 ### Environment changes (server/)
 - `reset()` returns task + `session_id`; session state lives in-memory per episode
@@ -403,6 +402,56 @@ The Dockerfile downloads: `torch` CPU (~600MB), CLIP model weights (~600MB), Pla
 **What happened (design trap):** Applying GRPO independently at each step means Dev_0 only sees `r_0` — the final reward never flows back. Early turns get misguided signal regardless of episode outcome.
 
 **Fix:** Full-episode GRPO — sample K complete trajectories, apply group-relative advantage to all tokens uniformly. Augment with shaped improvement-delta reward (λ=0.2) for early-turn credit assignment. See `train.py`.
+
+---
+
+### 13. Critic DONE-too-early collapses GRPO variance
+**What happened:** The training CRITIC_TRAIN_SYSTEM said "Output DONE if closely matches" (too permissive). The Critic said DONE after step 1 on medium/hard tasks regardless of quality. With all 4 rollouts at 1 step and similar rewards, group std ≈ 0 → advantages ≈ 0 → no gradient signal.
+
+**Fix:** Stricter prompt: "Output DONE only if >90% visual similarity. If ANY section is missing/wrong, list it — do NOT output DONE." Fixes variance collapse for run 2.
+
+---
+
+### 14. MAX_NEW_TOKENS=1024 caused truncated HTML → artificially low training rewards
+**What happened:** Complex HTML pages need 1500–2500 tokens. With MAX_NEW_TOKENS=1024, the model generated truncated HTML missing closing tags and lower sections. Reward was dominated by fmt/validity only (clip=0 because truncated HTML renders blank/broken).
+
+**Fix:** Increased to 2048 in src/train.py. Also helps that 2B model's training rewards (0.23–0.35) were far below vLLM inference rewards (0.6+) — gap partly explained by truncation.
+
+---
+
+### 15. GRPO breakthrough emerges at ep=16 (easy difficulty)
+**What happened:** After 15 episodes of noisy rewards (0.23–0.35 for easy), ep=16 easy jumped to 0.496 mean reward. Individual rollouts reached 0.82 with clip=0.95 (raw cosine ~0.98). The model learned to generate HTML with high visual similarity.
+
+**Why it happened:** GRPO with variance in rollouts — when 1 of 4 rollouts achieves clip=0.90+ while others get 0.00, the group advantage strongly reinforces the high-scoring generation strategy. This is the critical moment when GRPO starts working.
+
+**Observation:** Medium and hard tasks didn't break through in run 1 due to Critic early-termination. Run 2 (with fixed CRITIC_TRAIN_SYSTEM) should show similar breakthrough for all difficulties.
+
+---
+
+### 16. eval_lora.py — comparing trained vs base without vLLM
+**Command (runs after training, outside apptainer):**
+```bash
+export PLAYWRIGHT_BROWSERS_PATH=~/playwright-browsers
+/dev/shm/qwen35/bin/python eval_lora.py \
+    --lora-path checkpoints/run2/developer_final \
+    --model ~/models/Qwen3.5-2B \
+    --episodes 2
+```
+Outputs blog-ready markdown table + saves `checkpoints/eval_results.json`.
+
+**Command to start run 2 (resume from run 1 LoRA):**
+```bash
+apptainer exec --nv ~/apptainer-images/cuda-custom-amal_latest.sif bash -c '
+export LD_PRELOAD=/dev/shm/qwen35/lib/libstdc++.so.6
+/dev/shm/qwen35/bin/python train.py \
+    --phase developer \
+    --episodes 10 \
+    --k-rollouts 4 \
+    --model ~/models/Qwen3.5-2B \
+    --checkpoint-dir checkpoints/run3 \
+    --resume-from checkpoints/run2/developer_final
+' 2>&1 | tee checkpoints/train_run3.log
+```
 
 ---
 
