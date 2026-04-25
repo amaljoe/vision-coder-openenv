@@ -56,21 +56,26 @@ FALLBACK_HTML = "<!DOCTYPE html><html><head></head><body><p>Generation failed.</
 class EpisodeDebugger:
     """Logs the full Developer↔Critic conversation to outputs/<run>/<difficulty>.md.
 
-    Images are embedded as data URIs so the file is self-contained.
+    Images are saved as separate PNGs in outputs/<run>/images/ and referenced
+    with relative paths — works in GitHub markdown and keeps the .md readable.
     Instantiate once per episode; call the log_* methods in order.
     """
 
     OUTPUT_DIR = Path("outputs")
 
     def __init__(self, run_id: str, difficulty: str, model: str):
+        import base64 as _b64
+        self._b64 = _b64
         self._run_id = run_id
         self._difficulty = difficulty
         self._model = model
-        out = self.OUTPUT_DIR / run_id
-        out.mkdir(parents=True, exist_ok=True)
-        self._path = out / f"{difficulty}.md"
+        self._out = self.OUTPUT_DIR / run_id
+        self._img_dir = self._out / "images"
+        self._img_dir.mkdir(parents=True, exist_ok=True)
+        self._path = self._out / f"{difficulty}.md"
         self._f = self._path.open("w", encoding="utf-8")
         self._step = 0
+        self._img_counter = 0
         self._write(
             f"# Episode: {difficulty}  \n"
             f"**Model:** `{model}`  **Run:** `{run_id}`  "
@@ -81,7 +86,7 @@ class EpisodeDebugger:
 
     def log_reference(self, ref_b64: str) -> None:
         self._write("## Reference\n\n")
-        self._write(self._img(ref_b64) + "\n\n---\n\n")
+        self._write(self._save_img(ref_b64, "reference") + "\n\n---\n\n")
 
     def log_developer_input(self, current_html: str, critique: Optional[str]) -> None:
         self._step += 1
@@ -99,7 +104,7 @@ class EpisodeDebugger:
         self._write(
             f"**Developer called render_html** ({len(html)} chars):\n\n"
             f"```html\n{html[:1000]}{'…' if len(html) > 1000 else ''}\n```\n\n"
-            f"Preview: {self._img(render_b64)}\n\n"
+            f"Preview: {self._save_img(render_b64, f'step{self._step}_dev_preview')}\n\n"
         )
 
     def log_developer_output(self, html: str) -> None:
@@ -114,16 +119,16 @@ class EpisodeDebugger:
             rows = " | ".join(f"{k}: {v:.3f}" for k, v in sub_rewards.items())
             self._write(f"*Sub-rewards:* {rows}\n\n")
         if render_full_b64:
-            self._write(f"**Rendered output:**\n\n{self._img(render_full_b64)}\n\n")
+            self._write(f"**Rendered output:**\n\n{self._save_img(render_full_b64, f'step{self._step}_rendered')}\n\n")
 
     def log_critic_input(self, ref_b64: str, render_prev_b64: Optional[str], critique_prev: Optional[str], render_curr_b64: str) -> None:
-        self._write(f"### Critic\n\n**Reference:** {self._img(ref_b64)}\n\n")
+        self._write(f"### Critic\n\n**Reference:** {self._save_img(ref_b64, 'reference', dedup=True)}\n\n")
         if render_prev_b64 and critique_prev:
             self._write(
                 f"**Previous render** *(after critique: \"{critique_prev[:120].strip()}\")*:\n\n"
-                f"{self._img(render_prev_b64)}\n\n"
+                f"{self._save_img(render_prev_b64, f'step{self._step}_prev_render')}\n\n"
             )
-        self._write(f"**Current render:** {self._img(render_curr_b64)}\n\n")
+        self._write(f"**Current render:** {self._save_img(render_curr_b64, f'step{self._step}_curr_render', dedup=True)}\n\n")
 
     def log_critic_output(self, critique: str) -> None:
         verdict = "✅ DONE" if "DONE" in critique else "🔁 Feedback"
@@ -145,9 +150,18 @@ class EpisodeDebugger:
         self._f.write(text)
         self._f.flush()
 
-    @staticmethod
-    def _img(b64: str) -> str:
-        return f"![](data:image/png;base64,{b64})"
+    def _save_img(self, b64: str, name: str, dedup: bool = False) -> str:
+        """Save b64 PNG to images/<name>.png, return relative markdown image tag.
+
+        dedup=True reuses the file path without re-saving (for repeated references
+        to the same image, e.g. reference shown in both Developer and Critic sections).
+        """
+        fname = f"{self._difficulty}_{name}.png"
+        fpath = self._img_dir / fname
+        if not dedup or not fpath.exists():
+            fpath.write_bytes(self._b64.b64decode(b64))
+        rel = f"images/{fname}"
+        return f"![{name}]({rel})"
 
 # ---------------------------------------------------------------------------
 # Prompts
