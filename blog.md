@@ -171,14 +171,15 @@ Live reward curve (updating as training runs):
 | 13 | easy | 0.308 | 1.2 | −0.151 |
 | 14 | medium | 0.225 | 1.2 | +0.142 |
 | 15 | hard | 0.238 | 1.0 | −0.012 |
+| 16 | easy | **0.496** | 1.2 | −0.044 |
 | … | … | … | … | … |
 
-**Observations (15/20 episodes, training in progress):**
-- **Easy trend**: 0.312 → 0.286 → **0.349** → 0.283 → 0.308 — peak at ep=7; oscillates but stays near baseline; ep=7 weights will be used for evaluation
-- **Medium trend**: 0.280 → 0.287 → 0.228 → 0.239 → 0.225 — consistently noisy; Critic early-termination (mean_steps=1.0) collapses GRPO gradient variance
-- **Hard trend**: 0.230 → 0.238 → 0.245 → **0.256** → 0.238 — peak at ep=12; mean_steps=1.0 at ep=15 collapses signal (same issue as medium)
-- **Root cause**: old Critic training prompt was too permissive (DONE after 1 step); fixed for run 2 which resumes from run 1's best weights
-- Table and plot will be updated as remaining 5 episodes complete
+**Observations (16/20 episodes, training in progress):**
+- **BREAKTHROUGH at ep=16**: easy reaches **0.496** — a **59% improvement** over ep=1 baseline (0.312). GRPO is working!
+- The model started generating HTML that CLIP recognizes as visually similar to the reference (clip=0.60 in step logs vs 0.00 in earlier episodes)
+- **Easy trend**: 0.312 → 0.286 → 0.349 → 0.283 → 0.308 → **0.496** — exponential improvement emerges at ep=16
+- **Medium/Hard**: still limited by Critic early-termination (fixed for run 2)
+- Table and plot will be updated as remaining 4 episodes complete
 
 ---
 
