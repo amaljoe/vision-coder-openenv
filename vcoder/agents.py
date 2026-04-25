@@ -38,26 +38,52 @@ DEVELOPER_SYSTEM = (
     "No explanations, no markdown fences, no tool calls — just the HTML."
 )
 
-CRITIC_SYSTEM = (
-    "You are a precise UI reviewer. You will be shown a reference screenshot and the current "
-    "rendered HTML output.\n\n"
-    "You maintain a TODO list of visual issues to fix. On each review:\n"
-    "1. Look carefully at the CURRENT RENDER image before deciding anything.\n"
-    "2. Mark previously listed items [✓] ONLY if you can clearly see they are fixed in the render.\n"
-    "3. Keep previously listed items [ ] if they are still visibly wrong.\n"
-    "4. Add new items with [+] for newly spotted differences — be specific.\n\n"
-    "Always respond in this exact format:\n\n"
+FIRST_CRITIC_SYSTEM = (
+    "You are a precise UI reviewer performing an initial visual audit.\n\n"
+    "You will be shown a reference screenshot and the current rendered HTML output.\n"
+    "Systematically audit ALL of the following dimensions:\n\n"
+    "1. LAYOUT — Does the page fill the full viewport width? Is the column/grid structure correct?\n"
+    "   Is any content cropped or cut off at the edges? Are sections the right width/height?\n\n"
+    "2. STRUCTURE — Are all major sections present? (header/nav, hero, content areas, cards, sidebar, footer)\n"
+    "   Are sections in the correct visual order and proportion?\n\n"
+    "3. COLOR — Background color, text colors, button colors, section backgrounds, borders.\n"
+    "   Estimate hex codes from the image (e.g. 'should be dark navy ~#0f172a, currently white #ffffff').\n\n"
+    "4. TYPOGRAPHY — Font size (headings vs body), font weight (bold/normal), font family if visually distinctive.\n\n"
+    "5. SPACING — Padding inside sections, gaps between elements, overall visual density.\n\n"
+    "6. TEXT — Only flag if a visible heading or label is clearly wrong or absent.\n\n"
+    "Respond in this EXACT format:\n\n"
     "TODO LIST:\n"
-    "[ ] or [✓] or [+] <specific issue>\n"
+    "[+] DIMENSION — specific issue with reference vs render comparison\n"
+    "[+] ...\n\n"
+    "STATUS: OPEN (<N> items remaining)\n\n"
+    "Rules:\n"
+    "- Use [+] for every item (this is the first review — no history).\n"
+    "- Each item MUST start with a DIMENSION prefix: LAYOUT / STRUCTURE / COLOR / TYPOGRAPHY / SPACING / TEXT.\n"
+    "- Be quantitative: 'content too narrow ~400px, reference is full-width ~1200px' not just 'too narrow'.\n"
+    "- For colors: always include estimated hex — 'background should be dark navy ~#0f172a, render is white #ffffff'.\n"
+    "- A blank or nearly-blank white page must generate many items. Never output STATUS: DONE on a first review.\n"
+    "- Do NOT flag items that appear correct in the render."
+)
+
+SUBSEQUENT_CRITIC_SYSTEM = (
+    "You are a precise UI reviewer updating a running TODO list.\n\n"
+    "You will see the reference screenshot, the previous render, and the current render.\n"
+    "Update the TODO list based on what you observe in the CURRENT RENDER:\n\n"
+    "1. Look carefully at the CURRENT RENDER image before deciding anything.\n"
+    "2. Mark [✓] ONLY if you can clearly see the issue is resolved in the current render.\n"
+    "3. Keep [ ] if the issue is still visibly wrong.\n"
+    "4. Add [+] for newly spotted differences — use the same DIMENSION prefix format.\n\n"
+    "Respond in this EXACT format:\n\n"
+    "TODO LIST:\n"
+    "[ ] or [✓] or [+] DIMENSION — issue description\n"
     "...\n\n"
     "STATUS: DONE (if all items are [✓]) or OPEN (<N> items remaining)\n\n"
     "Rules:\n"
-    "- Only flag something as missing if you CANNOT see it in the current render image.\n"
-    "- For colors: be as specific as possible — estimate the hex code from the image if you can (e.g. 'button should be dark blue ~#1e40af, currently grey #9ca3af').\n"
-    "- For layout: describe position and size differences (e.g. 'header too narrow, should span full width').\n"
-    "- For text: flag only if the label/content is visibly wrong or absent.\n"
-    "- A blank or white page is never DONE.\n"
-    "- Do not add items that are already correct in the render."
+    "- Copy EVERY item from the previous list, updating only the marker.\n"
+    "- Do NOT mark [✓] unless you can clearly see the fix in the current render.\n"
+    "- Do NOT output STATUS: DONE unless every single item is [✓].\n"
+    "- A blank or mostly-white page is never DONE.\n"
+    "- [+] items added now are always OPEN — they can only be [✓] in a future step."
 )
 
 FALLBACK_HTML = "<!DOCTYPE html><html><head></head><body><p>Generation failed.</p></body></html>"
@@ -71,19 +97,48 @@ _DEV_ONESHOT_EXAMPLE_HTML = """\
 <html>
 <head>
 <style>
-  body { font-family: sans-serif; background: #f5f5f5; margin: 0; }
-  .card { background: #fff; border-radius: 8px; padding: 24px; max-width: 400px; margin: 40px auto; box-shadow: 0 2px 8px rgba(0,0,0,.1); }
-  h2 { margin: 0 0 8px; color: #1a1a2e; }
-  p  { margin: 0; color: #555; font-size: 14px; }
-  .btn { margin-top: 16px; display: inline-block; padding: 10px 20px; background: #4f46e5; color: #fff; border-radius: 6px; text-decoration: none; font-size: 14px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: sans-serif; background: #0f172a; color: #f1f5f9; }
+  nav { display: flex; align-items: center; justify-content: space-between;
+        padding: 16px 40px; background: #1e293b; width: 100%; }
+  nav .logo { font-weight: 700; font-size: 20px; color: #fff; }
+  nav a { color: #cbd5e1; text-decoration: none; margin-left: 24px; font-size: 14px; }
+  nav .btn { padding: 8px 18px; background: #22c55e; color: #fff; border-radius: 6px;
+             font-size: 14px; margin-left: 32px; }
+  .hero { text-align: center; padding: 80px 40px; }
+  .hero h1 { font-size: 48px; font-weight: 800; margin-bottom: 16px; }
+  .hero p  { font-size: 18px; color: #94a3b8; margin-bottom: 32px; }
+  .hero .cta { display: inline-block; padding: 14px 32px; background: #22c55e; color: #fff;
+               border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600; }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+              padding: 60px 40px; background: #1e293b; width: 100%; }
+  .card { background: #0f172a; border-radius: 10px; padding: 24px; }
+  .card h3 { font-size: 18px; margin-bottom: 8px; }
+  .card p  { font-size: 14px; color: #94a3b8; }
+  footer { text-align: center; padding: 32px 40px; color: #64748b; font-size: 14px; }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h2>Welcome back!</h2>
-    <p>Your dashboard is ready. Explore your latest metrics below.</p>
-    <a class="btn" href="#">Go to Dashboard</a>
-  </div>
+  <nav>
+    <span class="logo">SiteName</span>
+    <div>
+      <a href="#">Features</a>
+      <a href="#">Pricing</a>
+      <a href="#">Docs</a>
+      <a class="btn" href="#">Get Started</a>
+    </div>
+  </nav>
+  <section class="hero">
+    <h1>Build faster, ship better</h1>
+    <p>The platform teams trust to deliver results.</p>
+    <a class="cta" href="#">Start free trial</a>
+  </section>
+  <section class="features">
+    <div class="card"><h3>Feature One</h3><p>Short description of this feature and its benefits.</p></div>
+    <div class="card"><h3>Feature Two</h3><p>Short description of this feature and its benefits.</p></div>
+    <div class="card"><h3>Feature Three</h3><p>Short description of this feature and its benefits.</p></div>
+  </section>
+  <footer>&copy; 2024 SiteName. All rights reserved.</footer>
 </body>
 </html>"""
 
@@ -91,8 +146,12 @@ _DEV_ONESHOT_MESSAGES = [
     {
         "role": "user",
         "content": (
-            "[Example task] Reference screenshot: a card UI with title 'Welcome back!', "
-            "subtitle text, and an indigo 'Go to Dashboard' button on a light grey background."
+            "[Example task] Reference screenshot: a full-width dark-themed SaaS landing page. "
+            "Dark navy background (#0f172a). Full-width top nav with logo on the left, "
+            "nav links (Features, Pricing, Docs) and a green 'Get Started' button on the right. "
+            "Large centered hero section with big white heading, subtitle in muted grey, and a green CTA button. "
+            "Below: a dark grey (#1e293b) full-width section with three feature cards in a row. "
+            "Footer with copyright text."
         ),
     },
     {
@@ -101,58 +160,100 @@ _DEV_ONESHOT_MESSAGES = [
     },
 ]
 
-_CRITIC_ONESHOT_MESSAGES = [
+_FIRST_CRITIC_ONESHOT_MESSAGES = [
     {
         "role": "user",
         "content": (
-            "[FORMAT EXAMPLE — ignore content, follow the structure]\n"
-            "Reference: <image A>. Current render: <image B>.\n"
-            "(No previous TODO list — first review.)"
+            "[FORMAT EXAMPLE — generic placeholders, do NOT copy these specifics]\n"
+            "Reference: a full-width SaaS landing page. Dark navy background. Full-width header nav "
+            "with logo on left, nav links, and 'Get Started' button on right. Large hero section with "
+            "white headline and bright green CTA button. Below: a three-column feature cards section "
+            "with icon + title + body per card. Footer with links at the bottom.\n"
+            "Current render: a narrow centered white page (~500px wide). Only plain unstyled text, "
+            "no sections, no colors, no layout structure.\n"
+            "(This is the first review — no previous TODO list.)"
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[+] ELEMENT-X is missing from the render\n"
-            "[+] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
-            "[+] SECTION-Z is not present\n\n"
-            "STATUS: OPEN (3 items remaining)"
+            "[+] LAYOUT — page content is narrow (~500px centered); reference is full-width (~1200px, 100vw)\n"
+            "[+] LAYOUT — content is cut off on the right edge; reference shows no horizontal overflow\n"
+            "[+] STRUCTURE — header/navigation bar is absent; reference has a full-width nav with logo and CTA\n"
+            "[+] STRUCTURE — hero section is absent; reference has a large banner with headline and CTA button\n"
+            "[+] STRUCTURE — three-column feature cards section is missing; reference shows icon+title+body cards\n"
+            "[+] STRUCTURE — footer section is absent from the render\n"
+            "[+] COLOR — page background is white #ffffff; reference shows dark navy ~#0f172a\n"
+            "[+] COLOR — CTA button should be bright green ~#22c55e; no button visible in render\n"
+            "[+] TYPOGRAPHY — body text appears ~10px; reference shows ~16px normal weight\n"
+            "[+] SPACING — no vertical padding between sections; reference shows ~80px top/bottom per section\n\n"
+            "STATUS: OPEN (10 items remaining)"
         ),
     },
+]
+
+_SUBSEQUENT_CRITIC_ONESHOT_MESSAGES = [
     {
         "role": "user",
         "content": (
-            "[FORMAT EXAMPLE step 2] Previous TODO above. "
-            "ELEMENT-X and COLOR-Y are now fixed. SECTION-Z still missing. "
-            "New issue spotted: FONT-W is too large."
+            "[FORMAT EXAMPLE step 2 — generic placeholders, do NOT copy these specifics]\n"
+            "Previous TODO list:\n"
+            "[+] LAYOUT — page content is narrow (~500px centered); reference is full-width (~1200px, 100vw)\n"
+            "[+] LAYOUT — content is cut off on the right edge\n"
+            "[+] STRUCTURE — header/navigation bar is absent\n"
+            "[+] STRUCTURE — hero section is absent\n"
+            "[+] STRUCTURE — three-column feature cards section is missing\n"
+            "[+] STRUCTURE — footer section is absent\n"
+            "[+] COLOR — page background is white #ffffff; reference shows dark navy ~#0f172a\n"
+            "[+] COLOR — CTA button should be bright green ~#22c55e\n"
+            "[+] TYPOGRAPHY — body text appears ~10px; reference shows ~16px\n"
+            "[+] SPACING — no vertical padding between sections; reference shows ~80px per section\n\n"
+            "Current render: page is now full-width with a dark background. Header nav is present. "
+            "Hero section present with CTA button. Feature cards section is missing. Footer missing. "
+            "Text size looks correct. Section padding is present. Nav color is dark grey (~#374151) "
+            "instead of dark navy."
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[✓] ELEMENT-X is missing from the render\n"
-            "[✓] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
-            "[ ] SECTION-Z is not present\n"
-            "[+] FONT-W is too large — reduce from ~24px to ~16px\n\n"
-            "STATUS: OPEN (2 items remaining)"
+            "[✓] LAYOUT — page content is narrow (~500px centered); reference is full-width (~1200px, 100vw)\n"
+            "[ ] LAYOUT — content is cut off on the right edge\n"
+            "[✓] STRUCTURE — header/navigation bar is absent\n"
+            "[✓] STRUCTURE — hero section is absent\n"
+            "[ ] STRUCTURE — three-column feature cards section is missing\n"
+            "[ ] STRUCTURE — footer section is absent\n"
+            "[✓] COLOR — page background is white #ffffff; reference shows dark navy ~#0f172a\n"
+            "[✓] COLOR — CTA button should be bright green ~#22c55e\n"
+            "[✓] TYPOGRAPHY — body text appears ~10px; reference shows ~16px\n"
+            "[✓] SPACING — no vertical padding between sections; reference shows ~80px per section\n"
+            "[+] COLOR — nav bar is dark grey ~#374151; reference shows dark navy ~#0f172a\n\n"
+            "STATUS: OPEN (4 items remaining)"
         ),
     },
     {
         "role": "user",
         "content": (
-            "[FORMAT EXAMPLE step 3] SECTION-Z and FONT-W now both fixed."
+            "[FORMAT EXAMPLE step 3] All 4 remaining items from step 2 are now fixed in the current render."
         ),
     },
     {
         "role": "assistant",
         "content": (
             "TODO LIST:\n"
-            "[✓] ELEMENT-X is missing from the render\n"
-            "[✓] COLOR-Y is wrong — reference uses ~#0d9488 (teal), render uses #e5e7eb (light grey)\n"
-            "[✓] SECTION-Z is not present\n"
-            "[✓] FONT-W is too large — reduce from ~24px to ~16px\n\n"
+            "[✓] LAYOUT — page content is narrow (~500px centered); reference is full-width (~1200px, 100vw)\n"
+            "[✓] LAYOUT — content is cut off on the right edge\n"
+            "[✓] STRUCTURE — header/navigation bar is absent\n"
+            "[✓] STRUCTURE — hero section is absent\n"
+            "[✓] STRUCTURE — three-column feature cards section is missing\n"
+            "[✓] STRUCTURE — footer section is absent\n"
+            "[✓] COLOR — page background is white #ffffff; reference shows dark navy ~#0f172a\n"
+            "[✓] COLOR — CTA button should be bright green ~#22c55e\n"
+            "[✓] TYPOGRAPHY — body text appears ~10px; reference shows ~16px\n"
+            "[✓] SPACING — no vertical padding between sections; reference shows ~80px per section\n"
+            "[✓] COLOR — nav bar is dark grey ~#374151; reference shows dark navy ~#0f172a\n\n"
             "STATUS: DONE"
         ),
     },
@@ -355,13 +456,18 @@ def critic_turn(
     The TodoList is maintained across steps: items are marked done/pending/new
     based on what the Critic observes. Episode ends programmatically when all_done().
     """
+    is_first = prev_todo is None
+
     if dbg:
         prev_critique_text = prev_todo.format_for_developer() if prev_todo else None
         dbg.log_critic_input(ref_b64, render_prev_b64, prev_critique_text, render_curr_b64)
 
-    critic_messages = [{"role": "system", "content": CRITIC_SYSTEM}]
+    system = FIRST_CRITIC_SYSTEM if is_first else SUBSEQUENT_CRITIC_SYSTEM
+    oneshot = _FIRST_CRITIC_ONESHOT_MESSAGES if is_first else _SUBSEQUENT_CRITIC_ONESHOT_MESSAGES
+
+    critic_messages = [{"role": "system", "content": system}]
     if ONE_SHOT:
-        critic_messages.extend(_CRITIC_ONESHOT_MESSAGES)
+        critic_messages.extend(oneshot)
 
     content: list = [
         {"type": "text", "text": "Reference screenshot:"},
@@ -377,16 +483,27 @@ def critic_turn(
     content += [
         {"type": "text", "text": "Current render:"},
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{render_curr_b64}"}},
-        {
+    ]
+
+    if is_first:
+        content.append({
             "type": "text",
             "text": (
-                f"\n{prev_todo.format_for_critic() if prev_todo else '(First review — create the initial TODO list.)'}\n\n"
-                "Update the TODO list based on what you see. "
+                "\nThis is the first review. Perform a comprehensive visual audit covering "
+                "LAYOUT, STRUCTURE, COLOR, TYPOGRAPHY, SPACING, and TEXT dimensions. "
+                "Output your initial TODO LIST with [+] items only."
+            ),
+        })
+    else:
+        content.append({
+            "type": "text",
+            "text": (
+                f"\n{prev_todo.format_for_critic()}\n\n"
+                "Update the TODO list based on what you see in the CURRENT RENDER. "
                 "Mark fixed items [✓], keep unresolved items [ ], add new issues with [+]. "
                 "Output STATUS: DONE only when every item is [✓]."
             ),
-        },
-    ]
+        })
 
     critic_messages.append({"role": "user", "content": content})
 
