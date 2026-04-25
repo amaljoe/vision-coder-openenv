@@ -22,6 +22,8 @@ import sys
 import threading
 import time
 import urllib.request
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 import uvicorn
@@ -43,8 +45,109 @@ TASKS = ["easy", "medium", "hard"]
 BENCHMARK = "vision-coder"
 SUCCESS_SCORE_THRESHOLD = 0.1
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "5"))  # max developer turns per episode
+DEBUG = bool(os.environ.get("DEBUG", ""))
 
 FALLBACK_HTML = "<!DOCTYPE html><html><head></head><body><p>Generation failed.</p></body></html>"
+
+# ---------------------------------------------------------------------------
+# Episode debugger — writes a self-contained .md per episode when DEBUG=1
+# ---------------------------------------------------------------------------
+
+class EpisodeDebugger:
+    """Logs the full Developer↔Critic conversation to outputs/<run>/<difficulty>.md.
+
+    Images are embedded as data URIs so the file is self-contained.
+    Instantiate once per episode; call the log_* methods in order.
+    """
+
+    OUTPUT_DIR = Path("outputs")
+
+    def __init__(self, run_id: str, difficulty: str, model: str):
+        self._run_id = run_id
+        self._difficulty = difficulty
+        self._model = model
+        out = self.OUTPUT_DIR / run_id
+        out.mkdir(parents=True, exist_ok=True)
+        self._path = out / f"{difficulty}.md"
+        self._f = self._path.open("w", encoding="utf-8")
+        self._step = 0
+        self._write(
+            f"# Episode: {difficulty}  \n"
+            f"**Model:** `{model}`  **Run:** `{run_id}`  "
+            f"**Started:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        )
+
+    # ------------------------------------------------------------------
+
+    def log_reference(self, ref_b64: str) -> None:
+        self._write("## Reference\n\n")
+        self._write(self._img(ref_b64) + "\n\n---\n\n")
+
+    def log_developer_input(self, current_html: str, critique: Optional[str]) -> None:
+        self._step += 1
+        self._write(f"## Step {self._step} — Developer\n\n")
+        if critique:
+            self._write(f"**Critic feedback received:**\n\n> {critique.strip()}\n\n")
+        if current_html:
+            self._write(
+                f"**Previous HTML ({len(current_html)} chars):**\n\n"
+                f"```html\n{current_html[:2000]}"
+                f"{'…' if len(current_html) > 2000 else ''}\n```\n\n"
+            )
+
+    def log_developer_render_call(self, html: str, render_b64: str) -> None:
+        self._write(
+            f"**Developer called render_html** ({len(html)} chars):\n\n"
+            f"```html\n{html[:1000]}{'…' if len(html) > 1000 else ''}\n```\n\n"
+            f"Preview: {self._img(render_b64)}\n\n"
+        )
+
+    def log_developer_output(self, html: str) -> None:
+        self._write(
+            f"**Developer final HTML ({len(html)} chars):**\n\n"
+            f"```html\n{html[:3000]}{'…' if len(html) > 3000 else ''}\n```\n\n"
+        )
+
+    def log_step_result(self, reward: float, done: bool, render_full_b64: Optional[str], sub_rewards: Optional[dict] = None) -> None:
+        self._write(f"**Reward: `{reward:.4f}`** | done: `{done}`\n\n")
+        if sub_rewards:
+            rows = " | ".join(f"{k}: {v:.3f}" for k, v in sub_rewards.items())
+            self._write(f"*Sub-rewards:* {rows}\n\n")
+        if render_full_b64:
+            self._write(f"**Rendered output:**\n\n{self._img(render_full_b64)}\n\n")
+
+    def log_critic_input(self, ref_b64: str, render_prev_b64: Optional[str], critique_prev: Optional[str], render_curr_b64: str) -> None:
+        self._write(f"### Critic\n\n**Reference:** {self._img(ref_b64)}\n\n")
+        if render_prev_b64 and critique_prev:
+            self._write(
+                f"**Previous render** *(after critique: \"{critique_prev[:120].strip()}\")*:\n\n"
+                f"{self._img(render_prev_b64)}\n\n"
+            )
+        self._write(f"**Current render:** {self._img(render_curr_b64)}\n\n")
+
+    def log_critic_output(self, critique: str) -> None:
+        verdict = "✅ DONE" if "DONE" in critique else "🔁 Feedback"
+        self._write(f"**Critic says ({verdict}):**\n\n> {critique.strip()}\n\n---\n\n")
+
+    def log_summary(self, steps: int, score: float, rewards: List[float]) -> None:
+        self._write(
+            f"## Summary\n\n"
+            f"- **Steps:** {steps}\n"
+            f"- **Final score:** {score:.4f}\n"
+            f"- **All rewards:** {', '.join(f'{r:.4f}' for r in rewards)}\n"
+        )
+        self._f.close()
+        print(f"[DEBUG] Episode log → {self._path}", flush=True)
+
+    # ------------------------------------------------------------------
+
+    def _write(self, text: str) -> None:
+        self._f.write(text)
+        self._f.flush()
+
+    @staticmethod
+    def _img(b64: str) -> str:
+        return f"![](data:image/png;base64,{b64})"
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -132,7 +235,7 @@ def _wait_for_server(timeout: float = 120.0) -> None:
 # Developer agent
 # ---------------------------------------------------------------------------
 
-def _handle_render_tool_call(tool_call, env_client) -> dict:
+def _handle_render_tool_call(tool_call, env_client, dbg: Optional[EpisodeDebugger] = None) -> dict:
     """Call /render and return the tool result message with the low-res image."""
     try:
         args = json.loads(tool_call.function.arguments)
@@ -140,6 +243,8 @@ def _handle_render_tool_call(tool_call, env_client) -> dict:
         resp = env_client.post("/render", json={"html": html}, timeout=60)
         resp.raise_for_status()
         image_low_b64 = resp.json()["image_low_b64"]
+        if dbg:
+            dbg.log_developer_render_call(html, image_low_b64)
         return {
             "role": "tool",
             "tool_call_id": tool_call.id,
@@ -162,8 +267,12 @@ def developer_turn(
     ref_b64: str,
     current_html: str,
     critique: Optional[str],
+    dbg: Optional[EpisodeDebugger] = None,
 ) -> str:
     """Developer generates or refines HTML, optionally calling render tool to self-check."""
+    if dbg:
+        dbg.log_developer_input(current_html, critique)
+
     messages = [{"role": "system", "content": DEVELOPER_SYSTEM}]
 
     # Initial user message: reference image + task
@@ -208,10 +317,13 @@ def developer_turn(
             messages.append(choice.message)
             for tc in choice.message.tool_calls:
                 if tc.function.name == "render_html":
-                    messages.append(_handle_render_tool_call(tc, env_client))
+                    messages.append(_handle_render_tool_call(tc, env_client, dbg))
             # Continue loop — model will see the render and produce final HTML
         else:
-            return choice.message.content or FALLBACK_HTML
+            html_out = choice.message.content or FALLBACK_HTML
+            if dbg:
+                dbg.log_developer_output(html_out)
+            return html_out
 
     # Fallback if tool loop exhausted without text output
     response = client.chat.completions.create(
@@ -220,7 +332,10 @@ def developer_turn(
         max_tokens=4096,
         temperature=0.7,
     )
-    return response.choices[0].message.content or FALLBACK_HTML
+    html_out = response.choices[0].message.content or FALLBACK_HTML
+    if dbg:
+        dbg.log_developer_output(html_out)
+    return html_out
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +348,12 @@ def critic_turn(
     render_prev_b64: Optional[str],
     critique_prev: Optional[str],
     render_curr_b64: str,
+    dbg: Optional[EpisodeDebugger] = None,
 ) -> str:
     """Critic compares reference vs current render and returns feedback or DONE."""
+    if dbg:
+        dbg.log_critic_input(ref_b64, render_prev_b64, critique_prev, render_curr_b64)
+
     content = [
         {"type": "text", "text": "Reference screenshot:"},
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{ref_b64}"}},
@@ -268,7 +387,10 @@ def critic_turn(
         max_tokens=1024,
         temperature=0.1,  # critic should be precise, not creative
     )
-    return response.choices[0].message.content or ""
+    critique_out = response.choices[0].message.content or ""
+    if dbg:
+        dbg.log_critic_output(critique_out)
+    return critique_out
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +404,17 @@ def run_inference() -> None:
     env_client = httpx.Client(base_url=SERVER_URL, timeout=180.0)
     all_rewards: List[float] = []
 
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     for difficulty in TASKS:
         episode_rewards: List[float] = []
         steps_taken = 0
         score = 0.0
         success = False
+
+        dbg: Optional[EpisodeDebugger] = (
+            EpisodeDebugger(run_id, difficulty, MODEL_NAME) if DEBUG else None
+        )
 
         log_start(task=difficulty, env=BENCHMARK, model=MODEL_NAME)
 
@@ -296,6 +424,9 @@ def run_inference() -> None:
             obs = resp.json()
             session_id = obs["session_id"]
             ref_b64 = obs["screenshot_b64"]
+
+            if dbg:
+                dbg.log_reference(ref_b64)
 
             current_html = ""
             critique: Optional[str] = None
@@ -307,7 +438,7 @@ def run_inference() -> None:
 
                 # --- Developer turn ---
                 try:
-                    current_html = developer_turn(llm, env_client, ref_b64, current_html, critique)
+                    current_html = developer_turn(llm, env_client, ref_b64, current_html, critique, dbg)
                 except Exception as exc:
                     error_msg = str(exc)[:120]
                     current_html = FALLBACK_HTML
@@ -323,6 +454,10 @@ def run_inference() -> None:
                 reward = float(result.get("reward", 0.0))
                 done = bool(result.get("done", False))
                 render_full = result.get("render_full")
+                sub_rewards = result.get("metadata", {}).get("rewards")
+
+                if dbg:
+                    dbg.log_step_result(reward, done, render_full, sub_rewards)
 
                 episode_rewards.append(reward)
                 steps_taken = step_i + 1
@@ -333,7 +468,7 @@ def run_inference() -> None:
 
                 # --- Critic turn ---
                 try:
-                    critique = critic_turn(llm, ref_b64, render_prev, critique, render_full)
+                    critique = critic_turn(llm, ref_b64, render_prev, critique, render_full, dbg)
                     if "DONE" in critique:
                         break
                 except Exception as exc:
@@ -356,6 +491,8 @@ def run_inference() -> None:
             success = False
 
         finally:
+            if dbg:
+                dbg.log_summary(steps_taken, score, episode_rewards)
             log_end(success=success, steps=steps_taken, score=score, rewards=episode_rewards)
             all_rewards.extend(episode_rewards)
 
