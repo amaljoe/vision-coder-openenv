@@ -471,6 +471,42 @@ def compute_pg_loss(
 
 
 # ---------------------------------------------------------------------------
+# train.jsonl writer
+# ---------------------------------------------------------------------------
+
+class TrainLog:
+    """Writes one JSONL entry per episode tracking per-difficulty reward progression.
+
+    Each line: {"iter": N, "easy": float|null, "medium": float|null,
+                "hard": float|null, "mean": float|null, "loss": float}
+    Difficulties are filled in as they are seen; unseen ones stay null.
+    Default path: outputs/<checkpoint_dir_name>/train.jsonl
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = open(path, "w", buffering=1)
+        self._last: dict[str, float] = {}
+        self._iter = 0
+
+    def write(self, difficulty: str, reward: float, loss: float) -> None:
+        self._iter += 1
+        self._last[difficulty] = reward
+        entry: dict = {"iter": self._iter}
+        for d in DIFFICULTIES:
+            entry[d] = round(self._last[d], 4) if d in self._last else None
+        seen = [entry[d] for d in DIFFICULTIES if entry[d] is not None]
+        entry["mean"] = round(sum(seen) / len(seen), 4) if seen else None
+        entry["loss"] = round(loss, 4)
+        self._file.write(json.dumps(entry) + "\n")
+
+    def close(self) -> None:
+        self._file.close()
+        logger.info("Train log written to %s", self.path)
+
+
+# ---------------------------------------------------------------------------
 # Training phase
 # ---------------------------------------------------------------------------
 
@@ -482,6 +518,7 @@ def run_phase(
     num_episodes: int,
     k_rollouts: int,
     log_writer: csv.DictWriter,
+    train_log: "TrainLog | None" = None,
 ) -> None:
     """Run one training phase (Developer or Critic) for num_episodes episodes."""
     import httpx
@@ -548,14 +585,17 @@ def run_phase(
             len(rollouts), mean_terminal, mean_steps,
             avg_loss.item() if valid_rollouts > 0 else 0.0,
         )
+        episode_loss = avg_loss.item() if valid_rollouts > 0 else 0.0
         log_writer.writerow({
             "phase": phase.value,
             "episode": episode_num,
             "difficulty": difficulty,
             "mean_terminal_reward": mean_terminal,
             "mean_steps": mean_steps,
-            "loss": avg_loss.item() if valid_rollouts > 0 else 0.0,
+            "loss": episode_loss,
         })
+        if train_log is not None:
+            train_log.write(difficulty, mean_terminal, episode_loss)
 
         episode_num += 1
 
@@ -620,7 +660,7 @@ def main() -> None:
         weight_decay=0.01,
     )
 
-    # Reward log
+    # Reward log (CSV, in checkpoint dir)
     log_path = CHECKPOINT_DIR / "reward_log.csv"
     log_file = open(log_path, "w", newline="", buffering=1)
     log_writer = csv.DictWriter(
@@ -629,10 +669,17 @@ def main() -> None:
     )
     log_writer.writeheader()
 
+    # train.jsonl (in outputs/<run>/, gitignored)
+    run_name = CHECKPOINT_DIR.name
+    train_log_path = Path("outputs") / run_name / "train.jsonl"
+    train_log = TrainLog(train_log_path)
+    logger.info("Train JSONL log: %s", train_log_path)
+
     try:
         if args.phase in ("developer", "critic", "combined"):
             phase = Phase(args.phase)
-            run_phase(model, processor, optimizer, phase, args.episodes, args.k_rollouts, log_writer)
+            run_phase(model, processor, optimizer, phase, args.episodes, args.k_rollouts,
+                      log_writer, train_log)
         else:
             # Alternate: Developer → Critic → Developer → ...
             phases = [Phase.DEVELOPER, Phase.CRITIC] * (args.num_phases // 2)
@@ -641,10 +688,11 @@ def main() -> None:
             for p in phases:
                 logger.info("Starting phase: %s", p.value)
                 run_phase(model, processor, optimizer, p,
-                          args.episodes_per_phase, args.k_rollouts, log_writer)
+                          args.episodes_per_phase, args.k_rollouts, log_writer, train_log)
     finally:
         log_file.close()
         logger.info("Reward log written to %s", log_path)
+        train_log.close()
 
 
 if __name__ == "__main__":
