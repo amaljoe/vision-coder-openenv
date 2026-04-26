@@ -267,5 +267,5 @@ python tests/test_rewards.py           # subsequent runs (uses cached renders)
 
 - **HF Space**: [amaljoe88/vision-coder-openenv](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)
 - **GitHub**: [amaljoe/vision-coder-openenv](https://github.com/amaljoe/vision-coder-openenv)
+- **Interactive demo**: [amaljoe.github.io/vision-coder-openenv](https://amaljoe.github.io/vision-coder-openenv/)
 - **Base model**: [Qwen/Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B)
-- **Trained adapter**: `checkpoints/run2/developer_final` (LoRA, 43MB)
