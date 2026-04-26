@@ -188,12 +188,8 @@ python inference.py
 
 ### Run RL Training
 
-Open the **[Colab training notebook](https://github.com/amaljoe/vision-coder-openenv/blob/main/train_colab.ipynb)** to run training end-to-end (atleast 80GB runtime recommended due to longer contexts).
-
-Or run locally:
-
 ```bash
-python train.py --phase developer --episodes 20 --k-rollouts 4 \
+python train.py --phase combined --episodes 20 --k-rollouts 4 \
   --model Qwen/Qwen3.5-2B --checkpoint-dir checkpoints/run1
 ```
 
