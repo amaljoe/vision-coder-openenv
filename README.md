@@ -20,7 +20,7 @@ short_description: RL environment for screenshot-to-HTML generation
 
 An RL environment for screenshot-to-HTML generation. An agent receives a UI screenshot and iteratively refines HTML until the rendered output visually matches the reference.
 
-**[Live environment](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Blog](https://github.com/amaljoe/vision-coder-openenv/blob/main/blog.md) · [Interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**
+**[Live environment with interactive demo](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Blog](https://github.com/amaljoe/vision-coder-openenv/blob/main/blog.md)**
 
 ---
 
