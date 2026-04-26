@@ -30,6 +30,31 @@ app = FastAPI(
 _env = VisionCoderEnvironment()
 
 
+@app.get("/")
+def index():
+    return {
+        "name": "VisionCoder OpenEnv",
+        "version": "2.0.0",
+        "description": "Screenshot-to-HTML RL environment — multi-step, multi-agent (OpenEnv-compatible)",
+        "endpoints": {
+            "POST /reset?difficulty=easy|medium|hard|mixed": "Start a new episode",
+            "POST /step": "Submit HTML, get reward + renders",
+            "POST /render": "Render HTML to image (no reward)",
+            "GET /state": "Last session metadata",
+            "GET /health": "Liveness probe",
+        },
+        "reward_weights": {
+            "format": 0.5, "validity": 0.5, "structural": 0.5,
+            "text_block": 3.0, "position": 1.0, "color": 1.5,
+            "clip": 2.5, "ssim": 1.5,
+        },
+        "links": {
+            "github": "https://github.com/amaljoe/vision-coder-openenv",
+            "space": "https://huggingface.co/spaces/amaljoe88/vision-coder-openenv",
+        },
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
