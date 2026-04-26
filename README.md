@@ -12,7 +12,7 @@ pinned: false
 
 An RL environment for screenshot-to-HTML generation. An agent receives a UI screenshot and iteratively refines HTML until the rendered output visually matches the reference.
 
-**[Live environment](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Full writeup](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv/blob/main/blog.md)**
+**[Live environment](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Full writeup](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv/blob/main/blog.md) · [Interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**
 
 ---
 
@@ -64,6 +64,8 @@ The Critic compresses ~5,000 tokens of visual+code context into ~200 tokens of a
 
 A content multiplier forces blank renders to score 0.0 regardless of sub-reward values.  
 **Spearman ρ = 0.955** vs human quality rankings across 15 test cases.
+
+The reward test suite runs across all 15 cases. Browse all renders, scores, and per-sub-reward breakdowns in the **[interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**.
 
 ---
 

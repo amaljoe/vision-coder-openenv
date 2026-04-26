@@ -53,6 +53,8 @@ We validated the reward function against human-labelled quality levels across 15
 
 **Global Spearman ρ = 0.955** — the reward ranking matches human quality judgement on 15/15 test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
 
+Browse all 15 test case renders with per-sub-reward breakdowns in the **[interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**.
+
 The grid below shows sampled renders from three tasks alongside their reward scores. Each row shows a reference and three variants at different quality levels, ordered from best to worst:
 
 ![Reward grid](assets/reward_grid.png)
