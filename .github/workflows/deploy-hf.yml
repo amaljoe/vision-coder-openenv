@@ -27,13 +27,16 @@ jobs:
           sha = os.environ.get("GITHUB_SHA", "")[:8]
           raw_base = "https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/"
 
-          # Upload everything except blog.md and binary PNGs
+          # Upload everything except blog.md and binary PNGs.
+          # delete_patterns removes HF files that no longer exist in GitHub.
           api.upload_folder(
               folder_path=".",
               repo_id=repo_id,
               repo_type="space",
               ignore_patterns=["assets/*.png", "*.png", "__pycache__", "*.pyc",
                                ".git", "checkpoints/", "*.log", "blog.md"],
+              delete_patterns=["*.py", "*.md", "*.sh", "*.yaml", "*.yml",
+                               "*.txt", "*.toml", "*.lock", "*.json", "*.jsonl"],
               commit_message=f"deploy: sync {sha} from GitHub Actions",
           )
 
