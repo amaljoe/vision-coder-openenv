@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
 from openenv.server.environment import VisionCoderEnvironment, DEFAULT_MAX_STEPS, DEFAULT_LOW_RES, DEFAULT_FULL_RES
@@ -48,6 +50,11 @@ _env = VisionCoderEnvironment(
 
 @app.get("/")
 def index():
+    return RedirectResponse(url="/demo/", status_code=302)
+
+
+@app.get("/api")
+def api_info():
     return {
         "name": "VisionCoder OpenEnv",
         "version": "2.0.0",
@@ -154,6 +161,11 @@ def reset_dataset() -> dict:
 def close() -> None:
     """Signal end of session (no-op for single-instance server)."""
     logger.info("Session closed by client.")
+
+
+_docs_dir = Path(__file__).resolve().parent.parent.parent / "docs"
+if _docs_dir.is_dir():
+    app.mount("/demo", StaticFiles(directory=_docs_dir, html=True), name="demo")
 
 
 def main() -> None:
