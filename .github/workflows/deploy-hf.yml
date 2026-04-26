@@ -53,5 +53,24 @@ jobs:
               commit_message=f"deploy: blog.md with GitHub raw URLs ({sha})",
           )
           tmp.unlink()
+
+          # Upload docs/data.json with image paths replaced by GitHub raw URLs
+          import json
+          raw_docs = raw_base + "docs/"
+          data = json.loads(pathlib.Path("docs/data.json").read_text())
+          for case in data:
+              case["reference_image"] = raw_docs + case["reference_image"]
+              for variant in case["variants"]:
+                  variant["image"] = raw_docs + variant["image"]
+          tmp = pathlib.Path(tempfile.mktemp(suffix=".json"))
+          tmp.write_text(json.dumps(data))
+          api.upload_file(
+              path_or_fileobj=str(tmp),
+              path_in_repo="docs/data.json",
+              repo_id=repo_id,
+              repo_type="space",
+              commit_message=f"deploy: docs/data.json with GitHub raw image URLs ({sha})",
+          )
+          tmp.unlink()
           print(f"Deployed to https://huggingface.co/spaces/{repo_id}")
           EOF
