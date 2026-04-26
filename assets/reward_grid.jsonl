@@ -1,0 +1,3 @@
+{"difficulty": "Easy", "task_id": 0, "variants": [{"name": "perfect", "score": 0.9773}, {"name": "no_layout", "score": 0.5222}, {"name": "no_style", "score": 0.4424}]}
+{"difficulty": "Medium", "task_id": 5, "variants": [{"name": "minor_diff", "score": 0.9551}, {"name": "bad_colors", "score": 0.7327}, {"name": "no_style", "score": 0.35}]}
+{"difficulty": "Hard", "task_id": 10, "variants": [{"name": "perfect", "score": 0.9773}, {"name": "minor_diff", "score": 0.8818}, {"name": "no_style", "score": 0.2505}]}

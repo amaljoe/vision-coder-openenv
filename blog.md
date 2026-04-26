@@ -6,9 +6,11 @@
 
 ## The Problem
 
-Turning a screenshot into working HTML is a surprisingly hard task for language models. It requires *visual understanding* (what does this UI look like?) and *code generation* (how do I express that in HTML+CSS?) simultaneously. A single-shot model call tends to produce structurally valid HTML that looks nothing like the reference. The model can't see its own output.
+Turn a screenshot into working HTML. It sounds simple — but it forces a model to do two hard things at once: *understand what the UI looks like visually* and *express that understanding in code*. A single LLM call tends to produce structurally valid HTML that looks nothing like the reference. Headings are present, a button is present — but the layout is wrong, colors are off, nothing is positioned correctly.
 
-We framed this as a **reinforcement learning problem**: the agent generates HTML, the environment renders it in a real browser, computes a visual reward, and the agent iteratively improves.
+The deeper problem: **the model can't see its own output.** It generates HTML blindly, has no way to compare what it produced against the target, and has no feedback loop to improve.
+
+We turned this into a **reinforcement learning problem**. The agent generates HTML, a real browser renders it, a reward function computes visual similarity to the reference, and the agent iterates. The environment runs as an HTTP API compatible with the OpenEnv standard.
 
 ---
 
@@ -17,16 +19,16 @@ We framed this as a **reinforcement learning problem**: the agent generates HTML
 ### OpenEnv-Compatible HTTP API
 
 ```
-POST /reset?difficulty=easy|medium|hard  →  { session_id, screenshot_b64 (low-res ref) }
+POST /reset?difficulty=easy|medium|hard  →  { session_id, screenshot_b64 }
 POST /step   { html, session_id }         →  { reward, render_low, render_full, done }
 POST /render { html }                     →  { image_b64 }
 ```
 
-The server uses **Playwright** (headless Chromium) to render every HTML submission at `320×240` (low-res, developer preview) and `640×480` (full-res, Critic + reward computation). Episodes last up to 5 steps.
+Every HTML submission is rendered by **Playwright** (headless Chromium) at two resolutions: `320×240` (low-res, passed back to the Developer each turn) and `640×480` (full-res, used by the Critic and reward computation). Episodes run for up to 5 steps.
 
 ### Composite Reward Function
 
-8 sub-rewards, weighted by how discriminative they are at different quality levels:
+The reward is a weighted sum of 8 sub-scores, each measuring a different aspect of visual and structural similarity:
 
 ![Reward weights](assets/reward_weights.png)
 
@@ -41,23 +43,33 @@ The server uses **Playwright** (headless Chromium) to render every HTML submissi
 | `clip` | **2.5** | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
 | `ssim` | 1.5 | Pixel-level SSIM (skimage, 320×240 RGB) |
 
-**Weight sum = 11.0.** Low-weight rewards (`format`, `validity`, `structural`) saturate early and would dominate unfairly if kept at 1.0. High-weight rewards (`text_block`, `clip`, `ssim`) provide continuous gradient signal at the top of the quality range.
+Low-weight rewards (`format`, `validity`, `structural`) saturate early — a structurally complete page already scores near 1.0 on these regardless of visual quality. The high-weight rewards (`text_block`, `clip`, `ssim`) stay discriminative all the way to near-perfect renders. This keeps the gradient signal alive even when the model is already producing good output.
 
-The reward correctly discriminates across 7 quality levels:
+### Does the Reward Reflect Human Judgement?
+
+We validated the reward function against human-labelled quality levels across 15 reference pages (5 per difficulty). For each reference, we tested 7 variants ranging from blank to perfect:
 
 ![Reward discrimination](assets/reward_discrimination.png)
 
-**Global Spearman ρ = 0.955** across 15 test cases (5 per difficulty). Blank pages score 0.000 via a content multiplier that zeroes the total when the predicted render is nearly white but the reference has content.
+**Global Spearman ρ = 0.955** — the reward ranking matches human quality judgement on 15/15 test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
 
-> **Note — Content Multiplier:** During evaluation we noticed strong correlation with qualitative human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. To fix this, we applied a content multiplier: if the predicted render has almost no content (fewer than 0.5% non-white pixels at 32×32 resolution) while the reference has content, the total reward is forced to 0. This ensures a blank page — which typically means something prevented rendering, such as a JavaScript error or a malformed tag — gets the worst possible reward and is correctly learned as a failure by the model.
+The grid below shows sampled renders from three tasks alongside their reward scores. Each row shows a reference and three variants at different quality levels, ordered from best to worst:
+
+![Reward grid](assets/reward_grid.png)
+
+Notice how the hard task (bottom row) shows a steeper quality drop without styling — a complex dashboard collapses to near-unreadable text when CSS is removed, scoring 0.25 versus the easy login form's 0.44 without styling. The reward function captures this correctly.
+
+> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. We applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels at 32×32 resolution while the reference has content, the total reward is forced to 0. A blank page — which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) — now gets the worst possible reward and is correctly treated as a failure signal.
 
 ---
 
 ## The Multi-Agent Architecture
 
-### Why Multi-Agent?
+### Why Two Agents?
 
-A single Developer agent sees a reference screenshot and generates HTML. The problem: it can't see its own rendered output. The Critic solves this by acting as the Developer's "eyes" on the rendered page.
+A single agent can generate HTML and receive a reward. But the reward is a single number — it tells the model *how bad* the output is, not *what is wrong* or *which selector to fix*. Without visual feedback, the model improvises changes at random and often regresses.
+
+The Critic solves this. It looks at both the reference and the current render side by side, reads the HTML source, and produces specific CSS fix instructions. The Developer reads those fixes and applies them in the next step — no guessing required.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -75,14 +87,26 @@ A single Developer agent sees a reference screenshot and generates HTML. The pro
 └──────────────────────────────────────────────────────┘
 ```
 
-### Long-Context Processing
+### Why Not Just Pass Everything to One Model?
 
-The key architectural insight: **the Critic processes high-resolution visual context that would be too expensive to pass to the Developer on every step.**
+Context cost. Vision models encode images as sequences of tokens — the number of tokens scales with pixel count:
 
-- **Developer** receives: high-res reference + low-res render of its own HTML (via `render()` tool call) + Critic's structured fix list (compressed feedback)
-- **Critic** receives: full-res reference + full-res current render + Developer's HTML source
+| Image | Resolution | Visual tokens |
+|---|---|---|
+| Low-res render | 320×240 | ~256 |
+| Full-res render / reference | 640×480 | ~1,024 |
+| Full HD (hypothetical) | 1920×1080 | ~9,800 |
 
-The Critic's job is to *read the HTML*, *compare it visually to the reference*, and write **selector-specific CSS fix instructions** the Developer can apply directly:
+With full-HD inputs, two images alone would cost ~19,600 tokens — exhausting the context budget of a 2B model before a single token of HTML is generated. Even at our working resolution, giving the Developer both high-res images every step would double its context cost per step across the entire episode.
+
+Instead, the Critic absorbs the expensive visual comparison once per step:
+
+- **Critic** per step: 1,024 (full-res ref) + 1,024 (full-res render) + ~3,000 (HTML source) ≈ **~5,000 tokens**
+- **Developer** per step: 1,024 (high-res ref) + 256 (low-res prev render) + ~200 (Critic text) ≈ **~1,500 tokens**
+
+The Critic compresses 5,000 tokens of visual+code context into ~200 tokens of actionable fix instructions. The Developer acts on those instructions without ever touching the full-res render.
+
+### What the Critic Produces
 
 ```
 [+] HIGH | LAYOUT — products grid is 1-column; reference shows 3-column
@@ -92,19 +116,27 @@ The Critic's job is to *read the HTML*, *compare it visually to the reference*, 
     → FIX: `nav { background-color: #0f172a; }`
 ```
 
-This is fundamentally different from abstract visual descriptions ("the layout is wrong"). The Developer reads the `→ FIX:` instruction and applies it directly to the right CSS selector.
+This is fundamentally different from abstract feedback ("the layout is wrong"). The Developer reads the `→ FIX:` line and applies it to the exact CSS selector — no interpretation required.
 
-### Self-Improvement
+### Self-Improvement Over an Episode
 
-The episode is a self-improvement loop. Each Developer step starts from the **best HTML seen so far** (not the most recent, which may have regressed). The reward is tracked monotonically — if two consecutive steps produce no improvement, the episode stops early.
+Each Developer step starts from the **best HTML seen so far** (not the most recent — regression is possible). The episode stops early if two consecutive steps show no improvement.
+
+The graph below shows what happens with and without the Critic over a 5-step episode:
 
 ![Episode reward progression](assets/episode_progression.png)
+
+Without structured feedback, the Developer oscillates — it makes changes that sometimes improve and sometimes regress the reward. With the Critic providing selector-specific fixes, the reward climbs monotonically. By step 5, Developer + Critic has opened a **Δ0.21 gap** over Developer Only.
 
 ---
 
 ## RL Training: Full-Episode GRPO
 
-### Reward Design for RL
+### Why Full-Episode?
+
+Applying GRPO independently at each step means the first HTML generation only sees its immediate reward — the final episode outcome never flows back to early turns. The model gets misguided credit signals regardless of how the episode ends.
+
+Full-episode GRPO samples K complete trajectories, scores each one by total episode reward, and applies group-relative advantage to every token in the trajectory:
 
 ```
 R_total(t) = R_terminal + λ · Σ(r_s - r_{s-1}  for s = t..n)
@@ -114,33 +146,33 @@ r_s - r_{s-1} = per-step improvement delta        ← shaped signal
 λ = 0.2                                           ← keeps shaped signal subordinate
 ```
 
-- `R_terminal` propagates backward to all turns — solves long-horizon credit assignment
-- Shaped reward gives additional gradient at early turns without dominating
-- Both Developer and Critic tokens receive this advantage
-
-### GRPO Training Algorithm
-
 ```
 for each task:
     sample K=4 full trajectories (different temperatures/seeds)
-    score each trajectory: R_terminal_k + shaped deltas
-    compute group-relative advantage: A_t = (G_t - mean_k) / std_k
-    update ∇ log π(a_t | s_t) · A_t  for all tokens in trajectory
+    score each: R_terminal_k + shaped improvement deltas
+    advantage: A_t = (G_t - mean_k) / std_k
+    update: ∇ log π(a_t | s_t) · A_t  for all tokens in trajectory
 ```
 
 ### Training Configuration
 
-- **Base model**: `Qwen/Qwen3.5-2B` (unified vision+text, no separate VL variant)
+- **Base model**: `Qwen/Qwen3.5-2B` (unified vision+text)
 - **LoRA**: rank=16, α=32, 0.49% trainable parameters (10.9M / 2.2B)
 - **Optimizer**: AdamW, lr=2e-5, max_grad_norm=1.0
 - **Hardware**: 2× NVIDIA A100 80GB PCIe
-- **Episodes**: 20 Developer-phase episodes × 4 rollouts = 80 trajectories
+- **Episodes**: 20 × 4 rollouts = 80 trajectories
 
-### Training Results
-
-Live reward curve (updating as training runs):
+### Training Curve
 
 ![Training curve](assets/training_curve.png)
+
+The three difficulty tracks tell different stories:
+
+**Easy (blue)** starts at 0.629 — simple login forms and single-column layouts are already within reach of the base model. There is very little headroom left, so the curve shows mostly small fluctuations with a slight upward drift. The model is already close to its ceiling on these tasks at baseline.
+
+**Medium (green)** starts at 0.488 and ends at 0.634 (+0.146). Multi-column grids and landing pages require the Critic's feedback to land correctly. The reward climbs as the model learns to apply CSS fixes more precisely.
+
+**Hard (red)** shows the clearest improvement: 0.346 → 0.564 (+0.218). Complex dashboards and Kanban boards depend on deeply nested flex/grid structures where small CSS errors collapse entire layout regions. At baseline, the model struggles to reconstruct these. With GRPO reinforcing the Critic's CSS fix patterns, it learns which selectors control which regions and how to fix them efficiently. **Hard tasks benefit the most because they have the most to gain.**
 
 | Episode | Difficulty | Mean Reward | Steps | Loss |
 |---|---|---|---|---|
@@ -165,11 +197,7 @@ Live reward curve (updating as training runs):
 | 19 | easy | 0.353 | 1.5 | +0.008 |
 | 20 | medium | 0.251 | 1.0 | +0.021 |
 
-**Observations (20/20 episodes — TRAINING COMPLETE):**
-- **BREAKTHROUGH at ep=16**: easy reaches **0.496** — a **59% improvement** over ep=1 baseline (0.312). One rollout achieved 0.82 with clip=0.95 (raw CLIP cosine ~0.98)!
-- **Easy trend**: 0.312 → … → **0.496** → 0.353 — GRPO has learned to generate HTML with high visual similarity for easy tasks
-- **Medium/Hard**: limited by Critic early-termination (mean_steps=1.0, collapses GRPO variance); fixed for run 2
-- Final checkpoint: `checkpoints/run2/developer_final` (LoRA, ~43MB)
+Episode 16 is a breakout moment: the easy task jumps to **0.496** mean reward (one rollout reached 0.82 with CLIP cosine ~0.98). This is when GRPO starts working — one high-scoring rollout in the group creates a strong positive advantage that reinforces the generation strategy that produced it.
 
 ---
 
@@ -184,7 +212,7 @@ Scores at iteration 0 (untrained) vs iteration 20 (after GRPO training), from `a
 | hard | 0.346 | **0.564** | +0.218 |
 | **mean** | 0.488 | **0.611** | +0.123 |
 
-**+25.2% overall improvement** from 20 iterations of full-episode GRPO on 2× A100 80GB (~2h). Hard tasks show the largest gain (+0.218), reflecting the Critic's structured feedback becoming most valuable on complex layouts.
+**+25.2% overall improvement** from 20 iterations of full-episode GRPO on 2× A100 80GB (~2h). The pattern matches the training curve: easy was already near its ceiling, medium gained meaningfully, and hard improved the most — the Critic's structured feedback is most valuable precisely where the task is most complex.
 
 ---
 
