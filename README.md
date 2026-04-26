@@ -20,7 +20,7 @@ short_description: RL environment for screenshot-to-HTML generation
 
 An RL environment for screenshot-to-HTML generation. An agent receives a UI screenshot and iteratively refines HTML until the rendered output visually matches the reference.
 
-**[Live environment](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Blog](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv/blob/main/blog.md) · [Interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**
+**[Live environment](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv) · [Blog](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv/blob/main/blog.md) · [Training notebook](train_colab.ipynb) · [Interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**
 
 ---
 
@@ -81,6 +81,8 @@ The reward test suite runs across all 15 cases. Browse all renders, scores, and 
 
 Training Qwen3.5-2B with full-episode GRPO for 20 episodes on 2× A100 80GB (~2h):
 
+![Training Curve](assets/training_curve.png)
+
 | Difficulty | Base | Trained | Delta |
 |---|---|---|---|
 | easy | 0.629 | 0.634 | +0.005 |
@@ -89,6 +91,8 @@ Training Qwen3.5-2B with full-episode GRPO for 20 episodes on 2× A100 80GB (~2h
 | **mean** | **0.488** | **0.611** | **+25.2%** |
 
 Hard tasks improve the most — complex layouts have the most to gain from the Critic's structured feedback.
+
+![Episode reward progression](assets/episode_progression.png)
 
 ---
 
