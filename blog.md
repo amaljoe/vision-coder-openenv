@@ -171,40 +171,6 @@ Live reward curve (updating as training runs):
 
 ---
 
-## Key Engineering Challenges
-
-### 1. Abstract Critic Feedback Caused Regression
-
-The original Critic output abstract visual comparisons ("3-column grid vs 1-column"). The Developer couldn't translate these to CSS. Rewards oscillated 0.62→0.66→0.62→0.64 over 4 steps — no improvement.
-
-**Fix**: Critic now receives the Developer's HTML source. It references exact CSS selectors and writes copy-pasteable fix instructions. Rewards now climb monotonically.
-
-### 2. Blank Pages Score Too High
-
-A white page can score 0.80 on `validity` (has correct tags), 0.80+ on `structural` (no CSS classes = perfect match on the "no CSS classes" reference), and ~0.45 CLIP cosine (white pages cluster together).
-
-**Fix**: Content multiplier — if the reference has content but the prediction is nearly blank (< 0.5% non-white pixels), the total reward scales linearly from 0 to 1. CLIP renormalised so raw ≤ 0.65 → score 0.
-
-### 3. Color Reward False Positives
-
-Original color reward sampled non-white pixels independently from each image. A blank white prediction vs a mostly-white reference both sampled near-white → CIEDE2000 ≈ 0 → false high score.
-
-**Fix**: Spatial comparison at 128×128. Per-pixel CIEDE2000 averaged only over positions where the **reference** is non-white. Blank predictions at those positions get correct high ΔE.
-
-### 4. 4 Browser Launches Per Step
-
-`text_block`, `position`, `color`, and `clip` each launched Playwright independently — 4–6 browser sessions per `step()`.
-
-**Fix**: Render HTML once per step in `environment.py`, pass `PIL.Image` as `pred_image` to all reward functions.
-
-### 5. Dataset Path Bug (train.py)
-
-`_DATA_DIR = Path(__file__).parent.parent.parent / "data"` — one `parent` too many, causing the server to fall back to streaming the 738-shard HuggingFace WebSight dataset on every training run instead of loading bundled data instantly.
-
-**Fix**: `_DATA_DIR = Path(__file__).parent.parent / "data"`
-
----
-
 ## RL Training Results: Base vs Trained 2B
 
 Scores at iteration 0 (untrained) vs iteration 20 (after GRPO training), from `assets/train.jsonl`:
