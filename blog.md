@@ -98,22 +98,6 @@ The episode is a self-improvement loop. Each Developer step starts from the **be
 
 ---
 
-## Approach Comparison
-
-We tested three inference strategies on the same 3-difficulty benchmark:
-
-| Approach | Description | Easy | Medium | Hard | **Mean** |
-|---|---|---|---|---|---|
-| **A: Multi-Agent** | Developer + Critic (CSS-fix TODO list) | 0.629 | 0.488 | 0.346 | 0.488 |
-| **B: Long-Horizon** | Full history: all renders + all HTML | 0.606 | 0.683 | 0.388 | 0.559 |
-| **C: Short-Horizon** | Last render + last HTML only | 0.634 | 0.634 | 0.564 | 0.610 |
-
-![Approach comparison](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/approach_comparison.png)
-
-> **Why does Approach A score lowest before the fix?** The original Critic produced abstract observations ("reference shows 3-column grid; render shows 1-column stacked") with no concrete fix. The 2B Developer couldn't translate that into CSS. After our fix — Critic sees HTML source, outputs `→ FIX: .products { display: grid; ... }` — the loop converges instead of oscillating.
-
----
-
 ## RL Training: Full-Episode GRPO
 
 ### Reward Design for RL
@@ -241,8 +225,6 @@ Evaluated on bundled samples (2 episodes/difficulty, `temperature=0.3`, `max_new
 | Metric | Value |
 |---|---|
 | Reward test suite Spearman ρ | **0.955** (15/15 PASS) |
-| Best inference score (easy, Approach A) | **0.629** |
-| Best inference score (easy, Approach C) | **0.634** |
 | Base 2B mean reward (direct inference) | **0.927** |
 | Trained 2B mean reward (GRPO, 20 ep) | **0.956** (+3.2%) |
 | GRPO breakthrough episode | ep=16 easy: **0.496** (1 rollout: 0.82, clip=0.95) |
