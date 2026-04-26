@@ -10,11 +10,10 @@ Reward design:
 Usage:
   python train.py --phase developer --episodes 200 --k-rollouts 4
   python train.py --phase critic    --episodes 200 --k-rollouts 4
-  python train.py --phase alternate --episodes-per-phase 200 --k-rollouts 4 --num-phases 4
+  python train.py --phase combined --episodes-per-phase 200 --k-rollouts 4 --num-phases 4
 
 Requirements:
   pip install peft transformers accelerate
-  (torch already installed — CPU build for Mac, use GPU build for training)
 """
 from __future__ import annotations
 
