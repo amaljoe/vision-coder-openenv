@@ -58,24 +58,26 @@ The reward correctly discriminates across 7 quality levels:
 A single Developer agent sees a reference screenshot and generates HTML. The problem: it can't see its own rendered output. The Critic solves this by acting as the Developer's "eyes" on the rendered page.
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  Episode Loop                   │
-│                                                 │
-│  Reference (low-res) ──► Developer ──► HTML     │
-│                                                 │
-│  Reference (full-res) ─┐                        │
-│  Current render ───────┤► Critic ──► CSS Fixes  │
-│  HTML source ──────────┘                        │
-│                                                 │
-│  CSS Fixes ──────────────► Developer (step+1)   │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│                    Episode Loop                      │
+│                                                      │
+│  Reference (high-res) ─┐                             │
+│  Low-res render ───────┤► Developer ──► HTML         │
+│  CSS Fixes ────────────┘                             │
+│                                                      │
+│  Reference (full-res) ─┐                             │
+│  Current render ───────┤► Critic ──► CSS Fixes       │
+│  HTML source ──────────┘                             │
+│                                                      │
+│  CSS Fixes ──────────────► Developer (step+1)        │
+└──────────────────────────────────────────────────────┘
 ```
 
 ### Long-Context Processing
 
 The key architectural insight: **the Critic processes high-resolution visual context that would be too expensive to pass to the Developer on every step.**
 
-- **Developer** receives: low-res reference + Critic's structured fix list (compressed feedback)
+- **Developer** receives: high-res reference + low-res render of its own HTML (via `render()` tool call) + Critic's structured fix list (compressed feedback)
 - **Critic** receives: full-res reference + full-res current render + Developer's HTML source
 
 The Critic's job is to *read the HTML*, *compare it visually to the reference*, and write **selector-specific CSS fix instructions** the Developer can apply directly:
