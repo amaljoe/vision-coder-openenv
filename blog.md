@@ -28,7 +28,7 @@ The server uses **Playwright** (headless Chromium) to render every HTML submissi
 
 8 sub-rewards, weighted by how discriminative they are at different quality levels:
 
-![Reward weights](assets/reward_weights.png)
+![Reward weights](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/reward_weights.png)
 
 | Reward | Weight | What it measures |
 |---|---|---|
@@ -45,7 +45,7 @@ The server uses **Playwright** (headless Chromium) to render every HTML submissi
 
 The reward correctly discriminates across 7 quality levels:
 
-![Reward discrimination](assets/reward_discrimination.png)
+![Reward discrimination](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/reward_discrimination.png)
 
 **Global Spearman ρ = 0.955** across 15 test cases (5 per difficulty). Blank pages score 0.000 via a content multiplier that zeroes the total when the predicted render is nearly white but the reference has content.
 
@@ -94,7 +94,7 @@ This is fundamentally different from abstract visual descriptions ("the layout i
 
 The episode is a self-improvement loop. Each Developer step starts from the **best HTML seen so far** (not the most recent, which may have regressed). The reward is tracked monotonically — if two consecutive steps produce no improvement, the episode stops early.
 
-![Episode reward progression](assets/episode_progression.png)
+![Episode reward progression](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/episode_progression.png)
 
 ---
 
@@ -108,7 +108,7 @@ We tested three inference strategies on the same 3-difficulty benchmark:
 | **B: Long-Horizon** | Full history: all renders + all HTML | 0.606 | 0.683 | 0.388 | 0.559 |
 | **C: Short-Horizon** | Last render + last HTML only | 0.634 | 0.634 | 0.564 | 0.610 |
 
-![Approach comparison](assets/approach_comparison.png)
+![Approach comparison](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/approach_comparison.png)
 
 > **Why does Approach A score lowest before the fix?** The original Critic produced abstract observations ("reference shows 3-column grid; render shows 1-column stacked") with no concrete fix. The 2B Developer couldn't translate that into CSS. After our fix — Critic sees HTML source, outputs `→ FIX: .products { display: grid; ... }` — the loop converges instead of oscillating.
 
@@ -152,7 +152,7 @@ for each task:
 
 Live reward curve (updating as training runs):
 
-![Training curve](assets/training_curve.png)
+![Training curve](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/training_curve.png)
 
 | Episode | Difficulty | Mean Reward | Steps | Loss |
 |---|---|---|---|---|
