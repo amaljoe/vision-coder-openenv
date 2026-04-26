@@ -1,7 +1,7 @@
 """VisionCoder OpenEnv — Round 2 RL training.
 
 Full-episode GRPO with shaped reward for Developer and Critic agents.
-Alternating training phases: Developer (critic frozen) → Critic (developer frozen) → repeat.
+Alternating training phases: Developer (critic frozen) → Critic (developer frozen) → repeat or Combined training.
 
 Reward design:
   R_total(t) = R_terminal + λ · Σ(r_s - r_{s-1}  for s = t+1 .. n)
