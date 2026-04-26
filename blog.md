@@ -188,7 +188,7 @@ python inference.py
 
 ### Run RL Training
 
-Open the **[Colab training notebook](https://github.com/amaljoe/vision-coder-openenv/blob/main/train_colab.ipynb)** to run training end-to-end (A100 runtime recommended).
+Open the **[Colab training notebook](https://github.com/amaljoe/vision-coder-openenv/blob/main/train_colab.ipynb)** to run training end-to-end (atleast 80GB runtime recommended due to longer contexts).
 
 Or run locally:
 
@@ -198,6 +198,8 @@ python train.py --phase developer --episodes 20 --k-rollouts 4 \
 ```
 
 ### Run Test Suite
+
+Run the test suite to regenerate the rewards for the test set.  These rewards are available to visualise in the interactive demo at [https://amaljoe.github.io/vision-coder-openenv/](https://amaljoe.github.io/vision-coder-openenv/).
 
 ```bash
 python tests/test_rewards.py --render  # first run (needs Playwright)
