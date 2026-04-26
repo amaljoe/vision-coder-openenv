@@ -28,7 +28,7 @@ Every HTML submission is rendered by a headless Chromium at two resolutions: `32
 
 ### Composite Reward Function
 
-The reward is a weighted sum of 8 sub-scores, each measuring a different aspect of visual and structural similarity:
+The reward is a weighted sum of 8 sub-scores, each measuring a different aspect of visual and structural similarity. The weights asssigned to each reward are tuned using an auto research style approach (similar to [Andrej Karpathy's](https://github.com/karpathy/autoresearch)) - an AI agent loops through a large set of candidate weight combinations parallely and compares the reward ranking against human quality judgements to find the best correlation.
 
 ![Reward weights](assets/reward_weights.png)
 
@@ -47,11 +47,11 @@ Low-weight rewards (`format`, `validity`, `structural`) saturate early, a struct
 
 ### Does the Reward Reflect Human Judgement?
 
-We validated the reward function against human-labelled quality levels across 15 reference pages (5 per difficulty). For each reference, we tested 7 variants ranging from blank to perfect:
+We validated the final reward function against human-labelled quality levels across 15 reference pages (5 per difficulty). For each reference, we tested 7 variants ranging from blank to perfect:
 
 ![Reward discrimination](assets/reward_discrimination.png)
 
-**Global Spearman ρ = 0.955**, the reward ranking matches human quality judgement on 15/15 test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
+**Global Spearman ρ = 0.955** — the reward ranking matches human quality judgement on most of the test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
 
 Browse all 15 test case renders with per-sub-reward breakdowns in the **[interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**.
 
@@ -59,9 +59,7 @@ The grid below shows sampled renders from three tasks alongside their reward sco
 
 ![Reward grid](assets/reward_grid.png)
 
-Notice how the hard task (bottom row) shows a steeper quality drop without styling: a complex dashboard collapses to near-unreadable text when CSS is removed, scoring 0.25 versus the easy login form's 0.44 without styling. The reward function captures this correctly.
-
-> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. We applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels at 32×32 resolution while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
+> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. To fix this, we applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
 
 ---
 
@@ -113,11 +111,9 @@ Without structured feedback, the Developer oscillates: it makes changes that som
 
 ## RL Training: Full-Episode GRPO
 
-### Why Full-Episode?
+### Full-Episode Training
 
-Applying GRPO independently at each step means the first HTML generation only sees its immediate reward; the final episode outcome never flows back to early turns. The model gets misguided credit signals regardless of how the episode ends.
-
-Full-episode GRPO samples K complete trajectories, scores each one by total episode reward, and applies group-relative advantage to every token in the trajectory:
+Full-episode GRPO samples K complete trajectories, scores each one by total episode reward, and applies group-relative advantage to every token in the trajectory. Reward shaping is also used to add additional intermediate rewards (difference in rewards between each iteration):
 
 ```
 R_total(t) = R_terminal + λ · Σ(r_s - r_{s-1}  for s = t..n)
