@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionCoder — Test Suite Explorer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="header-title">
+        <h1>VisionCoder <span class="dim">Test Suite Explorer</span></h1>
+        <p class="header-sub">Reward function outputs across 15 reference pages × 7 quality levels</p>
+      </div>
+      <nav class="header-links">
+        <a href="https://huggingface.co/spaces/amaljoe88/vision-coder-openenv" target="_blank">HF Space ↗</a>
+        <a href="https://huggingface.co/spaces/amaljoe88/vision-coder-openenv/blob/main/blog.md" target="_blank">Blog ↗</a>
+        <a href="https://github.com/amaljoe/vision-coder-openenv" target="_blank">GitHub ↗</a>
+      </nav>
+    </div>
+    <div class="banner">
+      These are the outputs of the reward function test suite — 15 reference pages rendered at 7 quality levels each, scored by the composite reward function.
+    </div>
+  </header>
+
+  <main>
+    <div class="controls">
+      <div class="tabs" id="tabs">
+        <button class="tab active" data-filter="all">All <span class="count">15</span></button>
+        <button class="tab" data-filter="easy">Easy <span class="count">5</span></button>
+        <button class="tab" data-filter="medium">Medium <span class="count">5</span></button>
+        <button class="tab" data-filter="hard">Hard <span class="count">5</span></button>
+      </div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="detail-panel" id="detail" hidden>
+      <div class="detail-header">
+        <button class="close-btn" id="close-btn">✕ Close</button>
+        <div class="detail-meta" id="detail-meta"></div>
+      </div>
+      <div class="detail-body">
+        <div class="reference-col">
+          <div class="section-label">Reference</div>
+          <img class="reference-img" id="ref-img" src="" alt="Reference">
+        </div>
+        <div class="variants-col">
+          <div class="section-label">Variants <span class="dim small">(click to inspect)</span></div>
+          <div class="variant-strip" id="variant-strip"></div>
+          <div class="reward-panel" id="reward-panel"></div>
+          <div class="code-panel">
+            <button class="code-toggle" id="code-toggle">Show HTML source ▼</button>
+            <pre class="code-view" id="code-view" hidden></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
