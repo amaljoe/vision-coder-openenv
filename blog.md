@@ -108,7 +108,7 @@ The graph below shows what happens with and without the Critic over a 5-step epi
 
 ![Episode reward progression](assets/episode_progression.png)
 
-Without structured feedback, the Developer oscillates: it makes changes that sometimes improve and sometimes regress the reward. With the Critic providing selector-specific fixes, the reward climbs monotonically. By step 5, Developer + Critic has opened a **Δ0.21 gap** over Developer Only.
+Without structured feedback, the Developer oscillates: it makes changes that sometimes improve and sometimes regress the reward. With the Critic providing selector-specific fixes, the reward climbs monotonically. By step 5, Developer + Critic has opened a **Δ0.18 gap** over Developer Only.
 
 ---
 
