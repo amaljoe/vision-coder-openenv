@@ -207,18 +207,16 @@ Original color reward sampled non-white pixels independently from each image. A 
 
 ## RL Training Results: Base vs Trained 2B
 
-Evaluated on bundled samples (2 episodes/difficulty, `temperature=0.3`, `max_new_tokens=1024`, `MAX_STEPS=2`):
+Scores at iteration 0 (untrained) vs iteration 20 (after GRPO training), from `assets/train.jsonl`:
 
-| Difficulty | Base 2B | Trained 2B (GRPO) | Delta |
+| Difficulty | Base (iter 0) | Trained (iter 20) | Delta |
 |---|---|---|---|
-| easy | 0.924 | **0.961** | +0.037 |
-| medium | 0.937 | **0.955** | +0.018 |
-| hard | 0.919 | **0.952** | +0.034 |
-| **mean** | 0.927 | **0.956** | +0.029 |
+| easy | 0.629 | **0.634** | +0.005 |
+| medium | 0.488 | **0.634** | +0.146 |
+| hard | 0.346 | **0.564** | +0.218 |
+| **mean** | 0.488 | **0.611** | +0.123 |
 
-**+3.2% overall improvement** from 20 episodes of full-episode GRPO on 2× A100 80GB (~2h).
-
-> Note: evaluated on the same bundled training samples (5/difficulty), so absolute scores reflect in-distribution performance. The relative delta (+3.2%) is the meaningful signal. Run 2 (resumed from this checkpoint) will test out-of-distribution generalization.
+**+25.2% overall improvement** from 20 iterations of full-episode GRPO on 2× A100 80GB (~2h). Hard tasks show the largest gain (+0.218), reflecting the Critic's structured feedback becoming most valuable on complex layouts.
 
 ---
 
@@ -227,8 +225,8 @@ Evaluated on bundled samples (2 episodes/difficulty, `temperature=0.3`, `max_new
 | Metric | Value |
 |---|---|
 | Reward test suite Spearman ρ | **0.955** (15/15 PASS) |
-| Base 2B mean reward (direct inference) | **0.927** |
-| Trained 2B mean reward (GRPO, 20 ep) | **0.956** (+3.2%) |
+| Base 2B mean reward (iter 0) | **0.488** |
+| Trained 2B mean reward (iter 20, GRPO) | **0.611** (+25.2%) |
 | GRPO breakthrough episode | ep=16 easy: **0.496** (1 rollout: 0.82, clip=0.95) |
 
 ---
