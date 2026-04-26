@@ -199,7 +199,7 @@ python train.py --phase developer --episodes 20 --k-rollouts 4 \
 
 ### Run Test Suite
 
-Run the test suite to regenerate the rewards for the test set.  These rewards are available to visualise in the interactive demo at [https://amaljoe.github.io/vision-coder-openenv/](https://amaljoe.github.io/vision-coder-openenv/).
+Run the test suite to regenerate the rewards for the test set.  These rewards can be visualised in the [interactive demo](https://amaljoe.github.io/vision-coder-openenv/).
 
 ```bash
 python tests/test_rewards.py --render  # first run (needs Playwright)
