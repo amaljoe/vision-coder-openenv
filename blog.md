@@ -62,7 +62,7 @@ The grid below shows sampled renders from three tasks alongside their reward sco
 
 ![Reward grid](assets/reward_grid.png)
 
-> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. To fix this, we applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
+> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 due to sub-rewards like `format` and `validity` that don't require visual content. To fix this, we applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
 
 ---
 
