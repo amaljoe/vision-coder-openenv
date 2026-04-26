@@ -6,7 +6,7 @@
 
 ## The Problem
 
-Turn a screenshot into working HTML. It sounds simple but it forces a model to do two hard things at once: *understand what the UI looks like visually* and *express that understanding in code*. A single LLM call tends to produce structurally valid HTML that looks nothing like the reference. Headings are present, a button is present — but the layout is wrong, colors are off, nothing is positioned correctly.
+Turn a screenshot into working HTML. It sounds simple but it forces a model to do two hard things at once: *understand what the UI looks like visually* and *express that understanding in code*. A single LLM call tends to produce structurally valid HTML that looks nothing like the reference. Headings are present, a button is present but the layout is wrong, colors are off, nothing is positioned correctly.
 
 The deeper problem: **the model can't see its own output.** It generates HTML blindly, has no way to compare what it produced against the target, and has no feedback loop to improve.
 
@@ -24,7 +24,7 @@ POST /step   { html, session_id }         →  { reward, render_low, render_full
 POST /render { html }                     →  { image_b64 }
 ```
 
-Every HTML submission is rendered by **Playwright** (headless Chromium) at two resolutions: `320×240` (low-res, passed back to the Developer each turn) and `640×480` (full-res, used by the Critic and reward computation). Episodes run for up to 5 steps.
+Every HTML submission is rendered by a headless Chromium at two resolutions: `320×240` (low-res, passed back to the Developer each turn) and `640×480` (full-res, used by the Critic and reward computation). Episodes run for up to n(=5) steps.
 
 ### Composite Reward Function
 
@@ -61,7 +61,7 @@ The grid below shows sampled renders from three tasks alongside their reward sco
 
 Notice how the hard task (bottom row) shows a steeper quality drop without styling — a complex dashboard collapses to near-unreadable text when CSS is removed, scoring 0.25 versus the easy login form's 0.44 without styling. The reward function captures this correctly.
 
-> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. We applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels at 32×32 resolution while the reference has content, the total reward is forced to 0. A blank page — which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) — now gets the worst possible reward and is correctly treated as a failure signal.
+> **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. We applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels at 32×32 resolution while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
 
 ---
 
@@ -69,15 +69,15 @@ Notice how the hard task (bottom row) shows a steeper quality drop without styli
 
 ### Why Two Agents?
 
-A single agent can generate HTML and receive a reward. But the reward is a single number — it tells the model *how bad* the output is, not *what is wrong* or *which selector to fix*. Without visual feedback, the model improvises changes at random and often regresses.
+A single agent can generate HTML and receive a reward. But the reward is a single number: it tells the model *how bad* the output is, not *what is wrong* or *which selector to fix*. Without visual feedback, the model improvises changes at random and often regresses.
 
-The Critic solves this. It looks at both the reference and the current render side by side, reads the HTML source, and produces specific CSS fix instructions. The Developer reads those fixes and applies them in the next step — no guessing required.
+The Critic solves this. It looks at both the reference and the current render side by side, reads the HTML source, and produces specific CSS fix instructions. The Developer reads those fixes and applies them in the next step; no guessing required.
 
 ![Dual-agent architecture](assets/dual-agent-architecture.png)
 
 ### Why Not Just Pass Everything to One Model?
 
-Context cost. Vision models encode images as sequences of tokens — the number of tokens scales with pixel count:
+Context cost. Vision models encode images as sequences of tokens; the number of tokens scales with pixel count:
 
 | Image | Resolution | Visual tokens |
 |---|---|---|
@@ -85,14 +85,7 @@ Context cost. Vision models encode images as sequences of tokens — the number 
 | Full-res render / reference | 640×480 | ~1,024 |
 | Full HD (hypothetical) | 1920×1080 | ~9,800 |
 
-With full-HD inputs, two images alone would cost ~19,600 tokens — exhausting the context budget of a 2B model before a single token of HTML is generated. Even at our working resolution, giving the Developer both high-res images every step would double its context cost per step across the entire episode.
-
-Instead, the Critic absorbs the expensive visual comparison once per step:
-
-- **Critic** per step: 1,024 (full-res ref) + 1,024 (full-res render) + ~3,000 (HTML source) ≈ **~5,000 tokens**
-- **Developer** per step: 1,024 (high-res ref) + 256 (low-res prev render) + ~200 (Critic text) ≈ **~1,500 tokens**
-
-The Critic compresses 5,000 tokens of visual+code context into ~200 tokens of actionable fix instructions. The Developer acts on those instructions without ever touching the full-res render.
+With full-HD inputs, two images alone would cost ~19,600 tokens exhausting the context budget of a typical consumer GPU before a single token of HTML is generated. Even at our working resolution, giving the Developer both high-res images every step would double its context cost per step across the entire episode and this cost increases quadratically with higher resolutions.
 
 ### What the Critic Produces
 
@@ -108,13 +101,13 @@ This is fundamentally different from abstract feedback ("the layout is wrong"). 
 
 ### Self-Improvement Over an Episode
 
-Each Developer step starts from the **best HTML seen so far** (not the most recent — regression is possible). The episode stops early if two consecutive steps show no improvement.
+Each developer step sees the HTML code generated so far alongside reviews from the critic model and its low-resolution renders (to maintain a manageable context size).
 
 The graph below shows what happens with and without the Critic over a 5-step episode:
 
 ![Episode reward progression](assets/episode_progression.png)
 
-Without structured feedback, the Developer oscillates — it makes changes that sometimes improve and sometimes regress the reward. With the Critic providing selector-specific fixes, the reward climbs monotonically. By step 5, Developer + Critic has opened a **Δ0.21 gap** over Developer Only.
+Without structured feedback, the Developer oscillates: it makes changes that sometimes improve and sometimes regress the reward. With the Critic providing selector-specific fixes, the reward climbs monotonically. By step 5, Developer + Critic has opened a **Δ0.21 gap** over Developer Only.
 
 ---
 
@@ -158,34 +151,9 @@ The three difficulty tracks tell different stories:
 
 **Easy (blue)** starts at 0.629 — simple login forms and single-column layouts are already within reach of the base model. There is very little headroom left, so the curve shows mostly small fluctuations with a slight upward drift. The model is already close to its ceiling on these tasks at baseline.
 
-**Medium (green)** starts at 0.488 and ends at 0.634 (+0.146). Multi-column grids and landing pages require the Critic's feedback to land correctly. The reward climbs as the model learns to apply CSS fixes more precisely.
+**Medium (green)** starts at 0.488 and ends at 0.634 (+0.146). Multi-column grids and landing pages require the Critic's feedback to land correctly. The reward climbs early as the model learns to apply CSS fixes more precisely.
 
-**Hard (red)** shows the clearest improvement: 0.346 → 0.564 (+0.218). Complex dashboards and Kanban boards depend on deeply nested flex/grid structures where small CSS errors collapse entire layout regions. At baseline, the model struggles to reconstruct these. With GRPO reinforcing the Critic's CSS fix patterns, it learns which selectors control which regions and how to fix them efficiently. **Hard tasks benefit the most because they have the most to gain.**
-
-| Episode | Difficulty | Mean Reward | Steps | Loss |
-|---|---|---|---|---|
-| 1 | easy | 0.312 | 1.5 | −0.054 |
-| 2 | medium | 0.280 | 2.0 | −0.215 |
-| 3 | hard | 0.230 | 1.5 | −0.077 |
-| 4 | easy | 0.286 | 1.8 | −0.225 |
-| 5 | medium | 0.287 | 2.0 | −0.199 |
-| 6 | hard | 0.238 | 1.0 | +0.047 |
-| 7 | easy | **0.349** | 2.0 | **−0.315** |
-| 8 | medium | 0.228 | 1.0 | −0.052 |
-| 9 | hard | 0.245 | 2.0 | −0.186 |
-| 10 | easy | 0.283 | 1.5 | −0.123 |
-| 11 | medium | 0.239 | 1.0 | −0.007 |
-| 12 | hard | **0.256** | 1.5 | +0.207 |
-| 13 | easy | 0.308 | 1.2 | −0.151 |
-| 14 | medium | 0.225 | 1.2 | +0.142 |
-| 15 | hard | 0.238 | 1.0 | −0.012 |
-| 16 | easy | **0.496** | 1.2 | −0.044 |
-| 17 | medium | 0.227 | 1.0 | +0.019 |
-| 18 | hard | 0.233 | 1.5 | −0.066 |
-| 19 | easy | 0.353 | 1.5 | +0.008 |
-| 20 | medium | 0.251 | 1.0 | +0.021 |
-
-Episode 16 is a breakout moment: the easy task jumps to **0.496** mean reward (one rollout reached 0.82 with CLIP cosine ~0.98). This is when GRPO starts working — one high-scoring rollout in the group creates a strong positive advantage that reinforces the generation strategy that produced it.
+**Hard (red)** shows the clearest improvement: 0.346 → 0.564 (+0.218). Complex dashboards and Kanban boards depend on deeply nested flex/grid structures where small CSS errors collapse entire layout regions. At baseline, the model struggles to reconstruct these. With GRPO reinforcing the Critic's CSS fix patterns, it learns which selectors control which regions and how to fix them efficiently. The performance keeps on climbing even at 20 iterations and shows potential for more improvement. **Hard tasks benefit the most because they have the most to gain.**
 
 ---
 
@@ -240,7 +208,7 @@ python train.py --phase developer --episodes 20 --k-rollouts 4 \
   --model Qwen/Qwen3.5-2B --checkpoint-dir checkpoints/run1
 ```
 
-### Run Reward Tests
+### Run Test Suite
 
 ```bash
 python tests/test_rewards.py --render  # first run (needs Playwright)
