@@ -158,7 +158,7 @@ for each task:
 
 ### Training Configuration
 
-- **Base model**: `Qwen/Qwen3.5-2B` (unified vision+text)
+- **Base model**: [`Qwen/Qwen3.5-2B`](https://huggingface.co/Qwen/Qwen3.5-2B) (unified vision+text)
 - **LoRA**: rank=16, α=32, 0.49% trainable parameters (10.9M / 2.2B)
 - **Optimizer**: AdamW, lr=2e-5, max_grad_norm=1.0
 - **Hardware**: 2× NVIDIA A100 80GB PCIe
@@ -268,4 +268,3 @@ python tests/test_rewards.py           # subsequent runs (uses cached renders)
 - **HF Space**: [amaljoe88/vision-coder-openenv](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)
 - **GitHub**: [amaljoe/vision-coder-openenv](https://github.com/amaljoe/vision-coder-openenv)
 - **Interactive demo**: [amaljoe.github.io/vision-coder-openenv](https://amaljoe.github.io/vision-coder-openenv/)
-- **Base model**: [Qwen/Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B)
