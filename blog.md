@@ -96,7 +96,7 @@ This is fundamentally different from abstract visual descriptions ("the layout i
 
 The episode is a self-improvement loop. Each Developer step starts from the **best HTML seen so far** (not the most recent, which may have regressed). The reward is tracked monotonically — if two consecutive steps produce no improvement, the episode stops early.
 
-![Episode reward progression](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/episode_progression.png)
+![Episode reward progression](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/episode_progression.png?v=202604260851)
 
 ---
 
@@ -138,7 +138,7 @@ for each task:
 
 Live reward curve (updating as training runs):
 
-![Training curve](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/training_curve.png)
+![Training curve](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/training_curve.png?v=202604260851)
 
 | Episode | Difficulty | Mean Reward | Steps | Loss |
 |---|---|---|---|---|
