@@ -6,6 +6,14 @@ colorTo: purple
 sdk: docker
 app_port: 7860
 pinned: false
+models:
+  - Qwen/Qwen3.5-2B
+tags:
+  - reinforcement-learning
+  - html-generation
+  - computer-vision
+  - grpo
+short_description: RL environment for screenshot-to-HTML generation
 ---
 
 # VisionCoder OpenEnv
