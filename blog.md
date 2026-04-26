@@ -49,6 +49,8 @@ The reward correctly discriminates across 7 quality levels:
 
 **Global Spearman ρ = 0.955** across 15 test cases (5 per difficulty). Blank pages score 0.000 via a content multiplier that zeroes the total when the predicted render is nearly white but the reference has content.
 
+> **Note — Content Multiplier:** During evaluation we noticed strong correlation with qualitative human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. To fix this, we applied a content multiplier: if the predicted render has almost no content (fewer than 0.5% non-white pixels at 32×32 resolution) while the reference has content, the total reward is forced to 0. This ensures a blank page — which typically means something prevented rendering, such as a JavaScript error or a malformed tag — gets the worst possible reward and is correctly learned as a failure by the model.
+
 ---
 
 ## The Multi-Agent Architecture
