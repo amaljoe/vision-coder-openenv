@@ -59,7 +59,7 @@ The grid below shows sampled renders from three tasks alongside their reward sco
 
 ![Reward grid](assets/reward_grid.png)
 
-Notice how the hard task (bottom row) shows a steeper quality drop without styling — a complex dashboard collapses to near-unreadable text when CSS is removed, scoring 0.25 versus the easy login form's 0.44 without styling. The reward function captures this correctly.
+Notice how the hard task (bottom row) shows a steeper quality drop without styling: a complex dashboard collapses to near-unreadable text when CSS is removed, scoring 0.25 versus the easy login form's 0.44 without styling. The reward function captures this correctly.
 
 > **Content Multiplier:** We noticed strong correlation with human judgement for most pages, but blank renders were receiving rewards of ~0.3 from sub-rewards like `format` and `validity` that don't require visual content. We applied a content multiplier: if the predicted render has fewer than 0.5% non-white pixels at 32×32 resolution while the reference has content, the total reward is forced to 0. A blank page which typically means something prevented rendering (a JavaScript error, a malformed tag, or the model failing to generate HTML at all) now gets the worst possible reward and is correctly treated as a major failure signal.
 
@@ -97,7 +97,7 @@ With full-HD inputs, two images alone would cost ~19,600 tokens exhausting the c
     → FIX: `nav { background-color: #0f172a; }`
 ```
 
-This is fundamentally different from abstract feedback ("the layout is wrong"). The Developer reads the `→ FIX:` line and applies it to the exact CSS selector — no interpretation required.
+This is fundamentally different from abstract feedback ("the layout is wrong"). The Developer reads the `→ FIX:` line and applies it to the exact CSS selector, no interpretation required.
 
 ### Self-Improvement Over an Episode
 
@@ -115,7 +115,7 @@ Without structured feedback, the Developer oscillates: it makes changes that som
 
 ### Why Full-Episode?
 
-Applying GRPO independently at each step means the first HTML generation only sees its immediate reward — the final episode outcome never flows back to early turns. The model gets misguided credit signals regardless of how the episode ends.
+Applying GRPO independently at each step means the first HTML generation only sees its immediate reward; the final episode outcome never flows back to early turns. The model gets misguided credit signals regardless of how the episode ends.
 
 Full-episode GRPO samples K complete trajectories, scores each one by total episode reward, and applies group-relative advantage to every token in the trajectory:
 
@@ -149,7 +149,7 @@ for each task:
 
 The three difficulty tracks tell different stories:
 
-**Easy (blue)** starts at 0.629 — simple login forms and single-column layouts are already within reach of the base model. There is very little headroom left, so the curve shows mostly small fluctuations with a slight upward drift. The model is already close to its ceiling on these tasks at baseline.
+**Easy (blue)** starts at 0.629. Simple login forms and single-column layouts are already within reach of the base model. There is very little headroom left, so the curve shows mostly small fluctuations with a slight upward drift. The model is already close to its ceiling on these tasks at baseline.
 
 **Medium (green)** starts at 0.488 and ends at 0.634 (+0.146). Multi-column grids and landing pages require the Critic's feedback to land correctly. The reward climbs early as the model learns to apply CSS fixes more precisely.
 
