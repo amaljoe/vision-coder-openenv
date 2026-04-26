@@ -73,21 +73,7 @@ A single agent can generate HTML and receive a reward. But the reward is a singl
 
 The Critic solves this. It looks at both the reference and the current render side by side, reads the HTML source, and produces specific CSS fix instructions. The Developer reads those fixes and applies them in the next step — no guessing required.
 
-```
-┌──────────────────────────────────────────────────────┐
-│                    Episode Loop                      │
-│                                                      │
-│  Reference (high-res) ─┐                             │
-│  Low-res render ───────┤► Developer ──► HTML         │
-│  CSS Fixes ────────────┘                             │
-│                                                      │
-│  Reference (full-res) ─┐                             │
-│  Current render ───────┤► Critic ──► CSS Fixes       │
-│  HTML source ──────────┘                             │
-│                                                      │
-│  CSS Fixes ──────────────► Developer (step+1)        │
-└──────────────────────────────────────────────────────┘
-```
+![Dual-agent architecture](assets/dual-agent-architecture.png)
 
 ### Why Not Just Pass Everything to One Model?
 
