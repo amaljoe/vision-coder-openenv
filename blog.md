@@ -2,6 +2,8 @@
 
 **Scaler × Meta PyTorch Hackathon 2026 | Solo submission by [@amaljoe88](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)**
 
+Themes covered: Multi-Agent Interactions, (Super) Long-Horizon Planning & Instruction Following, Self-Improvement
+
 ---
 
 ## The Problem
@@ -28,7 +30,8 @@ Every HTML submission is rendered by a headless Chromium at two resolutions: `32
 
 ### Composite Reward Function
 
-The reward is a weighted sum of 8 sub-scores, each measuring a different aspect of visual and structural similarity. The weights asssigned to each reward are tuned using an auto research style approach (similar to [Andrej Karpathy's](https://github.com/karpathy/autoresearch)) - an AI agent loops through a large set of candidate weight combinations parallely and compares the reward ranking against human quality judgements to find the best correlation.
+The reward is a weighted sum of 8 sub-scores, each measuring a different aspect of visual and structural similarity. 
+> Fun Fact: The weights asssigned to each reward are tuned using an auto research style approach (similar to [Andrej Karpathy's](https://github.com/karpathy/autoresearch)) - an AI agent loops through a large set of candidate weight combinations parallely and compares the reward ranking against human quality judgements to find the best correlation.
 
 ![Reward weights](assets/reward_weights.png)
 
