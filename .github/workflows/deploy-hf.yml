@@ -20,20 +20,35 @@ jobs:
         run: |
           python3 - <<'EOF'
           from huggingface_hub import HfApi
-          import os
+          import os, pathlib, tempfile
 
           api = HfApi(token=os.environ["HF_TOKEN"])
           repo_id = "amaljoe88/vision-coder-openenv"
           sha = os.environ.get("GITHUB_SHA", "")[:8]
+          raw_base = "https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/"
 
+          # Upload everything except blog.md and binary PNGs
           api.upload_folder(
               folder_path=".",
               repo_id=repo_id,
               repo_type="space",
-              # Skip binary PNGs (rejected by HF Xet) — blog.md uses GitHub raw URLs for images
               ignore_patterns=["assets/*.png", "*.png", "__pycache__", "*.pyc",
-                               ".git", "checkpoints/", "*.log"],
+                               ".git", "checkpoints/", "*.log", "blog.md"],
               commit_message=f"deploy: sync {sha} from GitHub Actions",
           )
+
+          # Upload blog.md with local asset paths replaced by GitHub raw URLs
+          content = pathlib.Path("blog.md").read_text()
+          content = content.replace("assets/", raw_base + "assets/")
+          tmp = pathlib.Path(tempfile.mktemp(suffix=".md"))
+          tmp.write_text(content)
+          api.upload_file(
+              path_or_fileobj=str(tmp),
+              path_in_repo="blog.md",
+              repo_id=repo_id,
+              repo_type="space",
+              commit_message=f"deploy: blog.md with GitHub raw URLs ({sha})",
+          )
+          tmp.unlink()
           print(f"Deployed to https://huggingface.co/spaces/{repo_id}")
           EOF

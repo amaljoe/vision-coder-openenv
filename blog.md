@@ -28,7 +28,7 @@ The server uses **Playwright** (headless Chromium) to render every HTML submissi
 
 8 sub-rewards, weighted by how discriminative they are at different quality levels:
 
-![Reward weights](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/reward_weights.png)
+![Reward weights](assets/reward_weights.png)
 
 | Reward | Weight | What it measures |
 |---|---|---|
@@ -45,7 +45,7 @@ The server uses **Playwright** (headless Chromium) to render every HTML submissi
 
 The reward correctly discriminates across 7 quality levels:
 
-![Reward discrimination](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/reward_discrimination.png)
+![Reward discrimination](assets/reward_discrimination.png)
 
 **Global Spearman ρ = 0.955** across 15 test cases (5 per difficulty). Blank pages score 0.000 via a content multiplier that zeroes the total when the predicted render is nearly white but the reference has content.
 
@@ -96,7 +96,7 @@ This is fundamentally different from abstract visual descriptions ("the layout i
 
 The episode is a self-improvement loop. Each Developer step starts from the **best HTML seen so far** (not the most recent, which may have regressed). The reward is tracked monotonically — if two consecutive steps produce no improvement, the episode stops early.
 
-![Episode reward progression](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/episode_progression.png?v=202604260851)
+![Episode reward progression](assets/episode_progression.png)
 
 ---
 
@@ -138,7 +138,7 @@ for each task:
 
 Live reward curve (updating as training runs):
 
-![Training curve](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/training_curve.png?v=202604260851)
+![Training curve](assets/training_curve.png)
 
 | Episode | Difficulty | Mean Reward | Steps | Loss |
 |---|---|---|---|---|
