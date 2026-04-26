@@ -168,18 +168,7 @@ Scores at iteration 0 (untrained) vs iteration 20 (after GRPO training), from `a
 | hard | 0.346 | **0.564** | +0.218 |
 | **mean** | 0.488 | **0.611** | +0.123 |
 
-**+25.2% overall improvement** from 20 iterations of full-episode GRPO on 2× A100 80GB (~2h). The pattern matches the training curve: easy was already near its ceiling, medium gained meaningfully, and hard improved the most — the Critic's structured feedback is most valuable precisely where the task is most complex.
-
----
-
-## Results Summary
-
-| Metric | Value |
-|---|---|
-| Reward test suite Spearman ρ | **0.955** (15/15 PASS) |
-| Base 2B mean reward (iter 0) | **0.488** |
-| Trained 2B mean reward (iter 20, GRPO) | **0.611** (+25.2%) |
-| GRPO breakthrough episode | ep=16 easy: **0.496** (1 rollout: 0.82, clip=0.95) |
+**+25.2% overall improvement** from 20 iterations of full-episode GRPO on 2× A100 80GB (~2h). The pattern matches the training curve: easy was already near its ceiling, medium gained meaningfully, and hard improved the most. The Critic's structured feedback is most valuable precisely where the task is most complex.
 
 ---
 
