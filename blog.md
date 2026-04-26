@@ -1,12 +1,12 @@
-# VisionCoder OpenEnv — Screenshot-to-HTML with Multi-Agent RL
+# VisionCoder OpenEnv | Screenshot-to-HTML with Multi-Agent RL
 
-**Scaler × Meta PyTorch Hackathon 2026 — Solo Team submission by [@amaljoe88](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)**
+**Scaler × Meta PyTorch Hackathon 2026 | Solo team submission by [@amaljoe88](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)**
 
 ---
 
 ## The Problem
 
-Turn a screenshot into working HTML. It sounds simple — but it forces a model to do two hard things at once: *understand what the UI looks like visually* and *express that understanding in code*. A single LLM call tends to produce structurally valid HTML that looks nothing like the reference. Headings are present, a button is present — but the layout is wrong, colors are off, nothing is positioned correctly.
+Turn a screenshot into working HTML. It sounds simple but it forces a model to do two hard things at once: *understand what the UI looks like visually* and *express that understanding in code*. A single LLM call tends to produce structurally valid HTML that looks nothing like the reference. Headings are present, a button is present — but the layout is wrong, colors are off, nothing is positioned correctly.
 
 The deeper problem: **the model can't see its own output.** It generates HTML blindly, has no way to compare what it produced against the target, and has no feedback loop to improve.
 
@@ -43,7 +43,7 @@ The reward is a weighted sum of 8 sub-scores, each measuring a different aspect 
 | `clip` | **2.5** | CLIP ViT-B/32 cosine similarity, renormalised (threshold 0.65) |
 | `ssim` | 1.5 | Pixel-level SSIM (skimage, 320×240 RGB) |
 
-Low-weight rewards (`format`, `validity`, `structural`) saturate early — a structurally complete page already scores near 1.0 on these regardless of visual quality. The high-weight rewards (`text_block`, `clip`, `ssim`) stay discriminative all the way to near-perfect renders. This keeps the gradient signal alive even when the model is already producing good output.
+Low-weight rewards (`format`, `validity`, `structural`) saturate early, a structurally complete page already scores near 1.0 on these regardless of visual quality. The high-weight rewards (`text_block`, `clip`, `ssim`) stay discriminative all the way to near-perfect renders. This keeps the gradient signal alive even when the model is already producing good output.
 
 ### Does the Reward Reflect Human Judgement?
 
@@ -51,7 +51,7 @@ We validated the reward function against human-labelled quality levels across 15
 
 ![Reward discrimination](assets/reward_discrimination.png)
 
-**Global Spearman ρ = 0.955** — the reward ranking matches human quality judgement on 15/15 test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
+**Global Spearman ρ = 0.955**, the reward ranking matches human quality judgement on 15/15 test cases. The chart above shows the reward correctly ordering all 7 levels with clear gaps between them.
 
 Browse all 15 test case renders with per-sub-reward breakdowns in the **[interactive demo](https://amaljoe.github.io/vision-coder-openenv/)**.
 
