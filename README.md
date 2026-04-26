@@ -46,15 +46,7 @@ Episodes run for up to 5 steps. Every submission is rendered by Playwright (head
 
 A **Developer** generates HTML; a **Critic** compares the render against the reference and produces selector-specific CSS fix instructions.
 
-```
-Reference (high-res) ─┐
-Low-res render ────────┤► Developer ──► HTML ──► step() ──► reward
-CSS Fixes ─────────────┘
-
-Reference (full-res) ─┐
-Current render ────────┤► Critic ──► CSS Fixes ──► Developer (next step)
-HTML source ───────────┘
-```
+![Dual-agent architecture](https://raw.githubusercontent.com/amaljoe/vision-coder-openenv/main/assets/dual-agent-architecture.png)
 
 The Critic compresses ~5,000 tokens of visual+code context into ~200 tokens of actionable fix instructions the Developer can apply directly.
 
