@@ -1,0 +1,33 @@
+name: Deploy to HF Space
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove blog and assets (binary files rejected by HF Xet)
+        run: |
+          rm -rf blog.md assets/
+
+      - name: Push to HF Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config user.email "deploy-bot@github-actions"
+          git config user.name "GitHub Actions"
+          git remote add hf https://amaljoe88:${HF_TOKEN}@huggingface.co/spaces/amaljoe88/vision-coder-openenv
+          # Squash onto HF main to avoid binary file history
+          git fetch hf main
+          git checkout -b hf-deploy hf/main
+          git merge main --no-commit --no-ff || true
+          rm -rf blog.md assets/
+          git rm --cached blog.md assets/ -r 2>/dev/null || true
+          git commit -m "deploy: sync $(git rev-parse --short main) from GitHub Actions" || echo "Nothing to commit"
+          git push hf hf-deploy:main
