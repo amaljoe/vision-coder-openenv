@@ -1,0 +1,75 @@
+name: Deploy to HF Space + Blog
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-space:
+    name: Deploy code to HF Space
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to HF Space (strip PNG assets only)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          git remote add hf https://amaljoe88:${HF_TOKEN}@huggingface.co/spaces/amaljoe88/vision-coder-openenv
+
+          # Fetch HF main and create a deploy branch on top of it
+          git fetch hf main
+          git checkout -b hf-deploy hf/main
+
+          # Merge our main, stop before committing so we can clean up
+          git merge origin/main --no-commit --no-ff || true
+
+          # Remove only binary PNG files (text files like blog.md are fine)
+          git rm --cached assets/*.png -r 2>/dev/null || true
+
+          SHORT=$(git rev-parse --short origin/main)
+          git commit -m "deploy: sync ${SHORT} from GitHub Actions" || echo "Nothing new to deploy"
+
+          git push hf hf-deploy:main
+
+  deploy-blog:
+    name: Publish blog.md to HF model card
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub -q
+
+      - name: Push blog.md as model card README
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          from huggingface_hub import HfApi
+          import os
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          repo_id = "amaljoe88/vision-coder-openenv"
+
+          # Create repo if it doesn't exist (model type = model card / project page)
+          try:
+              api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True, private=False)
+          except Exception as e:
+              print(f"Repo create: {e}")
+
+          # Upload blog.md as README.md
+          api.upload_file(
+              path_or_fileobj="blog.md",
+              path_in_repo="README.md",
+              repo_id=repo_id,
+              repo_type="model",
+              commit_message=f"Update blog from GitHub Actions",
+          )
+          print(f"Blog published at https://huggingface.co/{repo_id}")
+          EOF
