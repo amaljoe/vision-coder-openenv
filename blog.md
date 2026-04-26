@@ -198,7 +198,7 @@ python train.py --phase combined --episodes 20 --k-rollouts 4 \
 
 ### Run Test Suite
 
-Run the test suite to generate rewards for the test set.  These rewards can be visualised in the [interactive demo](https://amaljoe.github.io/vision-coder-openenv/).
+Run the test suite to generate rewards for the test set.  These rewards can be visualised in the [interactive demo](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv).
 
 ```bash
 python tests/test_rewards.py --render  # first run (needs Playwright)
@@ -209,6 +209,5 @@ python tests/test_rewards.py           # subsequent runs (uses cached renders)
 
 ## Links
 
-- **HF Space**: [amaljoe88/vision-coder-openenv](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)
+- **HF Space with Interactive Demo**: [amaljoe88/vision-coder-openenv](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)
 - **GitHub**: [amaljoe/vision-coder-openenv](https://github.com/amaljoe/vision-coder-openenv)
-- **Interactive demo**: [amaljoe.github.io/vision-coder-openenv](https://amaljoe.github.io/vision-coder-openenv/)
