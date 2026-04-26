@@ -1,6 +1,6 @@
 # VisionCoder OpenEnv — Screenshot-to-HTML with Multi-Agent RL
 
-**Scaler × Meta PyTorch Hackathon 2026 — Team submission by [@amaljoe88](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)**
+**Scaler × Meta PyTorch Hackathon 2026 — Solo Team submission by [@amaljoe88](https://huggingface.co/spaces/amaljoe88/vision-coder-openenv)**
 
 ---
 
