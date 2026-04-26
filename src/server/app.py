@@ -11,12 +11,14 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import os
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from openenv.models import Action, Observation, RenderRequest, RenderResponse, State
-from openenv.server.environment import VisionCoderEnvironment
+from openenv.server.environment import VisionCoderEnvironment, DEFAULT_MAX_STEPS, DEFAULT_LOW_RES, DEFAULT_FULL_RES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,7 +29,21 @@ app = FastAPI(
     version="2.0.0",
 )
 
-_env = VisionCoderEnvironment()
+def _parse_res(env_var: str, default: tuple) -> tuple:
+    val = os.environ.get(env_var, "")
+    if val:
+        try:
+            w, h = val.split("x")
+            return (int(w), int(h))
+        except Exception:
+            logger.warning("Invalid %s=%r, using default %s", env_var, val, default)
+    return default
+
+_env = VisionCoderEnvironment(
+    max_steps=int(os.environ.get("MAX_STEPS", DEFAULT_MAX_STEPS)),
+    low_res=_parse_res("LOW_RES", DEFAULT_LOW_RES),
+    full_res=_parse_res("FULL_RES", DEFAULT_FULL_RES),
+)
 
 
 @app.get("/")
@@ -62,16 +78,16 @@ def health():
 
 @app.post("/reset", response_model=Observation)
 def reset(
-    difficulty: str = Query(
-        default="mixed",
-        description="Task difficulty: easy | medium | hard | mixed",
-    )
+    difficulty: str = Query(default="mixed", description="Task difficulty: easy | medium | hard | mixed"),
+    max_steps: Optional[int] = Query(default=None, description="Max turns for this episode (overrides server default)"),
 ) -> Observation:
     """Start a new episode. Returns session_id and the reference screenshot."""
     if difficulty not in ("easy", "medium", "hard", "mixed"):
         raise HTTPException(status_code=422, detail=f"Invalid difficulty: {difficulty!r}")
+    if max_steps is not None and max_steps < 1:
+        raise HTTPException(status_code=422, detail="max_steps must be >= 1")
     try:
-        obs = _env.reset(difficulty=difficulty)
+        obs = _env.reset(difficulty=difficulty, max_steps=max_steps)
         logger.info(
             "Session %s started — difficulty=%s sample=%d",
             obs.session_id,

@@ -35,10 +35,12 @@ A single LLM call can produce structurally valid HTML that looks nothing like th
 ### API
 
 ```
-POST /reset?difficulty=easy|medium|hard  →  { session_id, screenshot_b64 }
-POST /step   { html, session_id }         →  { reward, render_low, render_full, done }
-POST /render { html }                     →  { image_b64 }
+POST /reset?difficulty=easy|medium|hard&max_steps=5  →  { session_id, screenshot_b64 }
+POST /step   { html, session_id }                     →  { reward, render_low, render_full, done }
+POST /render { html }                                 →  { image_b64 }
 ```
+
+`max_steps` defaults to 5. Render resolutions default to `320×240` (low) and `640×480` (full) and can be overridden at startup via `LOW_RES=WxH` and `FULL_RES=WxH` env vars.
 
 Episodes run for up to 5 steps. Every submission is rendered by Playwright (headless Chromium) at `320×240` (low-res preview) and `640×480` (full-res, used for reward and Critic).
 

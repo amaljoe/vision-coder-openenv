@@ -21,7 +21,9 @@ from openenv.server.rewards.validity_rewards import html_validity_reward
 from openenv.server.rewards import extract_html
 from openenv.server.rewards.visual_rewards import _render_html, clip_visual_reward
 
-MAX_STEPS = 5  # max developer turns per episode
+DEFAULT_MAX_STEPS = 5
+DEFAULT_LOW_RES  = (320, 240)
+DEFAULT_FULL_RES = (640, 480)
 
 REWARD_WEIGHTS = {
     "format":     0.5,   # was 1.0 — saturates to 1.0 after early training; reduce weight
@@ -35,8 +37,8 @@ REWARD_WEIGHTS = {
 }
 _WEIGHT_SUM = sum(REWARD_WEIGHTS.values())  # 11.0
 
-LOW_RES = (320, 240)   # developer self-check render
-FULL_RES = (640, 480)  # critic + reward computation render
+LOW_RES  = DEFAULT_LOW_RES   # module-level alias kept for external imports
+FULL_RES = DEFAULT_FULL_RES
 
 DIFFICULTY_PROMPTS = {
     "easy": (
@@ -70,6 +72,7 @@ class _Session:
     difficulty: str
     sample: dict
     ref_image: Image.Image
+    max_steps: int
     step_count: int = 0
     sample_index: int = 0
 
@@ -78,14 +81,29 @@ class VisionCoderEnvironment:
     """Multi-step, session-aware OpenEnv environment for screenshot-to-HTML generation.
 
     Each reset() creates an independent session identified by session_id.
-    step() accepts session_id in the Action and allows up to MAX_STEPS turns
+    step() accepts session_id in the Action and allows up to max_steps turns
     per episode before returning done=True.
 
     step() returns render_low and render_full (base64 PNG) alongside the reward
     so the Developer agent can inspect its render without an extra /render call.
+
+    Args:
+        max_steps:   Default max developer turns per episode (overridable per reset).
+        low_res:     Resolution for the low-res preview returned to the Developer.
+        full_res:    Resolution for reward computation and Critic renders.
+        max_samples: Max dataset samples to load per difficulty.
     """
 
-    def __init__(self, max_samples: int = 2000):
+    def __init__(
+        self,
+        max_steps: int = DEFAULT_MAX_STEPS,
+        low_res: tuple = DEFAULT_LOW_RES,
+        full_res: tuple = DEFAULT_FULL_RES,
+        max_samples: int = 2000,
+    ):
+        self._default_max_steps = max_steps
+        self._low_res = low_res
+        self._full_res = full_res
         self._max_samples = max_samples
         self._datasets: Dict[str, list] = {}
         self._dataset_indices: Dict[str, int] = {"easy": 0, "medium": 0, "hard": 0, "mixed": 0}
@@ -109,8 +127,15 @@ class VisionCoderEnvironment:
     # OpenEnv interface
     # ------------------------------------------------------------------
 
-    def reset(self, difficulty: str = "mixed") -> Observation:
-        """Start a new episode. Returns session_id and the reference screenshot."""
+    def reset(self, difficulty: str = "mixed", max_steps: Optional[int] = None) -> Observation:
+        """Start a new episode. Returns session_id and the reference screenshot.
+
+        Args:
+            difficulty: Task difficulty — easy | medium | hard | mixed.
+            max_steps:  Override max turns for this episode; uses env default when None.
+        """
+        episode_max_steps = max_steps if max_steps is not None else self._default_max_steps
+
         dataset = self._get_dataset(difficulty)
         key = difficulty if difficulty in ("easy", "medium", "hard") else "mixed"
 
@@ -123,7 +148,7 @@ class VisionCoderEnvironment:
 
         ref_image = _render_html(sample["solution"])
         if ref_image is None:
-            ref_image = Image.new("RGB", FULL_RES, color=(255, 255, 255))
+            ref_image = Image.new("RGB", self._full_res, color=(255, 255, 255))
 
         session = _Session(
             episode_id=episode_id,
@@ -131,6 +156,7 @@ class VisionCoderEnvironment:
             difficulty=difficulty,
             sample={**sample, "image": ref_image},
             ref_image=ref_image,
+            max_steps=episode_max_steps,
             sample_index=idx,
         )
         self._sessions[session_id] = session
@@ -146,7 +172,9 @@ class VisionCoderEnvironment:
                 "session_id": session_id,
                 "sample_index": idx,
                 "difficulty": difficulty,
-                "max_steps": MAX_STEPS,
+                "max_steps": episode_max_steps,
+                "low_res": list(self._low_res),
+                "full_res": list(self._full_res),
             },
         )
 
@@ -164,7 +192,7 @@ class VisionCoderEnvironment:
 
         session = self._sessions[session_id]
         session.step_count += 1
-        done = session.step_count >= MAX_STEPS
+        done = session.step_count >= session.max_steps
 
         completions = [[{"content": action.html}]]
         images = [session.ref_image]
@@ -202,14 +230,14 @@ class VisionCoderEnvironment:
             done=done,
             reward=total,
             session_id=session_id,
-            render_low=_image_to_b64(pred_render, size=LOW_RES),
-            render_full=_image_to_b64(pred_render),
+            render_low=_image_to_b64(pred_render, size=self._low_res),
+            render_full=_image_to_b64(pred_render, size=self._full_res),
             metadata={
                 "episode_id": session.episode_id,
                 "session_id": session_id,
                 "step_count": session.step_count,
                 "difficulty": session.difficulty,
-                "max_steps": MAX_STEPS,
+                "max_steps": session.max_steps,
                 "rewards": {
                     "format": fmt,
                     "validity": val,
@@ -232,7 +260,7 @@ class VisionCoderEnvironment:
         """
         image = _render_html(extract_html(request.html))
         if image is None:
-            image = Image.new("RGB", FULL_RES, color=(255, 255, 255))
+            image = Image.new("RGB", self._full_res, color=(255, 255, 255))
         return RenderResponse(
             image_b64=_image_to_b64(image),
             image_low_b64=_image_to_b64(image, size=LOW_RES),
@@ -248,6 +276,6 @@ class VisionCoderEnvironment:
                 session_id=s.session_id,
                 step_count=s.step_count,
                 sample_index=s.sample_index,
-                max_steps=MAX_STEPS,
+                max_steps=s.max_steps,
             )
         return State()
